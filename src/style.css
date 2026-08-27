@@ -90,7 +90,8 @@ body {
   display: flex;
   align-items: center;
   gap: 14px;
-  min-height: 46px;
+  height: 54px;
+  min-height: 54px;
   padding: 8px 14px;
   background: var(--bg2);
   border-bottom: 1px solid var(--panel-edge);
@@ -112,28 +113,62 @@ body {
 #viewtabs {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--panel-edge);
-  border-radius: 7px;
-  background: var(--bg);
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #2a3655;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #111728, #090c14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055), 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 .viewtab {
+  --view-color: var(--accent);
+  --view-bg: rgba(120, 200, 255, 0.22);
+  --view-edge: rgba(120, 200, 255, 0.58);
   all: unset;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 28px;
   cursor: pointer;
-  padding: 3px 8px;
-  border-radius: 4px;
-  color: var(--dim);
+  padding: 0 13px;
+  border-radius: 999px;
+  color: var(--view-color);
   font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.02em;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+  opacity: 0.72;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+.viewtab[data-view="walkthrough"] {
+  --view-color: var(--walk-mint);
+  --view-bg: rgba(39, 252, 174, 0.2);
+  --view-edge: rgba(39, 252, 174, 0.56);
+}
+.viewtab::before {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  content: "";
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
 }
 .viewtab:hover {
-  color: var(--text);
+  background: var(--view-bg);
+  opacity: 1;
 }
 .viewtab.on {
-  color: var(--text);
-  background: var(--panel);
+  color: var(--view-color);
+  background: var(--view-bg);
+  box-shadow: inset 0 0 0 1px var(--view-edge), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-weight: 750;
+  opacity: 1;
+}
+.viewtab:active {
+  transform: scale(0.97);
 }
 #topbar .sub {
   color: var(--dim);
@@ -186,7 +221,7 @@ body {
    returning to the demo is instant, and every maintained view is still the same view. */
 #walkthrough {
   position: fixed;
-  inset: 46px 0 0;
+  inset: 54px 0 0;
   z-index: 50;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -209,11 +244,11 @@ body {
   border-bottom-color: var(--walk-rule);
 }
 #app.walk-mode #viewtabs {
-  background: var(--walk-panel);
-  border-color: var(--walk-rule);
+  background: linear-gradient(180deg, #1c1c1e, #0d0d0e);
+  border-color: #343438;
 }
 #app.walk-mode .viewtab.on {
-  background: #27252b;
+  background: var(--view-bg);
 }
 #app.walk-mode .hudchips {
   display: none;
