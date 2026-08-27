@@ -150,6 +150,9 @@ try {
       const codeStyle = getComputedStyle(codeEl);
       const titleStyle = getComputedStyle(document.getElementById('walk-title'));
       const sourceStyle = getComputedStyle(first.querySelector('.walk-source'));
+      const walkthroughSource = [...document.querySelectorAll('.walk-source')]
+        .map((source) => source.textContent ?? '')
+        .join('\n');
       const sourceLinks = [...document.querySelectorAll('.walk-source-links a')];
       const paneThumbs = [...document.querySelectorAll('.walk-pane-frame')];
       const viewSwitch = document.getElementById('viewtabs').getBoundingClientRect();
@@ -160,6 +163,15 @@ try {
         steps: document.querySelectorAll('.walk-step').length,
         paired: code.right < prose.left && Math.abs(code.top - prose.top) < 20,
         highlighted: !!first.querySelector('.walk-source .t-m'),
+        clientAPIExamples:
+          walkthroughSource.includes('q.shape') &&
+          walkthroughSource.includes('.materialize()') &&
+          walkthroughSource.includes('store.write(') &&
+          walkthroughSource.includes('tx.edit(') &&
+          walkthroughSource.includes('exists(') &&
+          !walkthroughSource.includes('defineQuery(') &&
+          !walkthroughSource.includes('useQuery(') &&
+          !walkthroughSource.includes('zero.mutate('),
         docsStyled:
           essayStyle.backgroundColor === 'rgb(0, 0, 0)' &&
           codeStyle.borderRadius === '16px' &&
@@ -746,6 +758,7 @@ try {
     fail(`the walkthrough is not six paired code/prose sections: ${JSON.stringify(walkthrough)}`);
   }
   if (!walkthrough.highlighted) fail("the walkthrough source was not syntax highlighted");
+  if (!walkthrough.clientAPIExamples) fail("the walkthrough is not teaching the @rindle/client API");
   if (!walkthrough.docsStyled) fail("the walkthrough lost the zero-docs visual tokens");
   if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
   if (!walkthrough.permalinks) fail("the walkthrough source links are not immutable GitHub line anchors");
