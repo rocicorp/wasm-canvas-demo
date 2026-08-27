@@ -152,6 +152,8 @@ try {
       const sourceStyle = getComputedStyle(first.querySelector('.walk-source'));
       const sourceLinks = [...document.querySelectorAll('.walk-source-links a')];
       const paneThumbs = [...document.querySelectorAll('.walk-pane-frame')];
+      const viewSwitch = document.getElementById('viewtabs').getBoundingClientRect();
+      const activeViewTab = getComputedStyle(document.querySelector('.viewtab.on'));
       const opened = {
         visible: !essay.hidden,
         mode: document.getElementById('app').classList.contains('walk-mode'),
@@ -185,6 +187,11 @@ try {
             (body) => body.textContent === document.querySelector('#panel-recent .pbody')?.textContent
           ),
         queryCountHeld: app.queries().length === queryViews.length,
+        prominentViewSwitch:
+          viewSwitch.height >= 34 &&
+          parseFloat(getComputedStyle(document.getElementById('viewtabs')).borderRadius) >= 16 &&
+          activeViewTab.color === 'rgb(39, 252, 174)' &&
+          activeViewTab.backgroundColor !== 'rgba(0, 0, 0, 0)',
         canvasHeldSize: canvasRect.width > 0 && document.getElementById('canvas').getBoundingClientRect().width === canvasRect.width,
       };
 
@@ -744,6 +751,7 @@ try {
   if (!walkthrough.permalinks) fail("the walkthrough source links are not immutable GitHub line anchors");
   if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");
   if (!walkthrough.queryCountHeld) fail("opening the walkthrough registered duplicate queries for its live cards");
+  if (!walkthrough.prominentViewSwitch) fail("the canvas/walkthrough switch lost its prominent segmented styling");
   if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
   if (!walkthrough.sameViews) fail("opening the walkthrough replaced a maintained query view");
   if (!/groupBy\("color"\)/.test(custom.forkedCode ?? "")) {
