@@ -152,11 +152,17 @@ try {
       const sourceStyle = getComputedStyle(first.querySelector('.walk-source'));
       const walkthroughSource = [...document.querySelectorAll('.walk-source')]
         .map((source) => source.textContent ?? '')
-        .join('\n');
+        .join('\\n');
       const sourceLinks = [...document.querySelectorAll('.walk-source-links a')];
       const paneThumbs = [...document.querySelectorAll('.walk-pane-frame')];
       const viewSwitch = document.getElementById('viewtabs').getBoundingClientRect();
       const activeViewTab = getComputedStyle(document.querySelector('.viewtab.on'));
+      essay.scrollTop = Math.min(720, essay.scrollHeight - essay.clientHeight);
+      const scrollBeforeCard = essay.scrollTop;
+      const recentCard = document.querySelector('[data-walk-pane="recent"]');
+      const cardA11y = recentCard
+        ? { role: recentCard.getAttribute('role'), tabIndex: recentCard.tabIndex }
+        : null;
       const opened = {
         visible: !essay.hidden,
         mode: document.getElementById('app').classList.contains('walk-mode'),
@@ -207,10 +213,20 @@ try {
         canvasHeldSize: canvasRect.width > 0 && document.getElementById('canvas').getBoundingClientRect().width === canvasRect.width,
       };
 
+      recentCard?.click();
+      await new Promise((r) => requestAnimationFrame(r));
+      const cardOpenedCanvas = essay.hidden && !document.getElementById('app').classList.contains('walk-mode');
+      history.back();
+      await new Promise((r) => setTimeout(r, 50));
+      const scrollAfterBack = essay.scrollTop;
+      const returnedByBack = !essay.hidden && Math.abs(scrollAfterBack - scrollBeforeCard) <= 1;
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await new Promise((r) => requestAnimationFrame(r));
       return {
         ...opened,
+        cardA11y,
+        cardOpenedCanvas,
+        returnedByBack,
         closed: essay.hidden && !document.getElementById('body').inert,
         sameViews:
           app.queries().length === queryViews.length &&
@@ -760,6 +776,12 @@ try {
   if (!walkthrough.highlighted) fail("the walkthrough source was not syntax highlighted");
   if (!walkthrough.clientAPIExamples) fail("the walkthrough is not teaching the @rindle/client API");
   if (!walkthrough.docsStyled) fail("the walkthrough lost the zero-docs visual tokens");
+  if (walkthrough.cardA11y?.role !== "button" || walkthrough.cardA11y?.tabIndex < 0) {
+    fail(`the walkthrough component cards are not keyboard accessible: ${JSON.stringify(walkthrough.cardA11y)}`);
+  }
+  if (!walkthrough.cardOpenedCanvas || !walkthrough.returnedByBack) {
+    fail(`the walkthrough card did not return through browser Back with its scroll position: ${JSON.stringify(walkthrough)}`);
+  }
   if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
   if (!walkthrough.permalinks) fail("the walkthrough source links are not immutable GitHub line anchors");
   if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");

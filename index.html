@@ -110,7 +110,6 @@
                   <span>demo implementation</span>
                   <span class="walk-source-links">
                     <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L112-L118" target="_blank" rel="noopener noreferrer">query · queries.ts:112–118 <span aria-hidden="true">↗</span></a>
-                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/app.ts#L102-L118" target="_blank" rel="noopener noreferrer">materialize · app.ts:102–118 <span aria-hidden="true">↗</span></a>
                   </span>
                 </div>
               </div>
@@ -180,7 +179,7 @@ palette.data;</pre>
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">03 / Change state once</p>
-                <h2>A write is the only update path.</h2>
+                <h2>Transactions are the only update path.</h2>
                 <p>
                   Dragging a shape writes a row. Inside that same call, the engine derives the
                   consequences and updates every affected query. When the promise resolves,
@@ -213,7 +212,7 @@ const cell = q.shape
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">04 / Let queries do the bookkeeping</p>
-                <h2>One row can have many derived consequences.</h2>
+                <h2>One row can have many derivations.</h2>
                 <p>
                   Recoloring moves a count between palette groups. Resizing can reseat the
                   leaderboard. Any edit moves the shape to the top of the feed. Dragging across a
