@@ -40,6 +40,11 @@ const walkthrough = $("walkthrough");
 const body = $("body");
 const foot = $("foot");
 const viewTabs = [...document.querySelectorAll<HTMLButtonElement>(".viewtab")];
+type DemoView = "canvas" | "walkthrough";
+type DemoHistoryState = {
+  demoView?: DemoView;
+  walkthroughScrollTop?: number;
+};
 
 // The essay's snippets use the same small tokenizer as the live query panels. It is deliberately
 // done from their text content: the HTML stays readable source, and the highlighter remains the
@@ -48,7 +53,7 @@ for (const source of document.querySelectorAll<HTMLElement>(".walk-source")) {
   source.innerHTML = highlightQuery(source.textContent ?? "");
 }
 
-function showView(view: "canvas" | "walkthrough", updateLocation = true): void {
+function showView(view: DemoView, scrollTop = 0): void {
   walkthroughOpen = view === "walkthrough";
   walkthrough.hidden = !walkthroughOpen;
   body.inert = walkthroughOpen;
@@ -61,20 +66,55 @@ function showView(view: "canvas" | "walkthrough", updateLocation = true): void {
   }
   if (walkthroughOpen) {
     walkThumbsDirty = true;
-    walkthrough.scrollTop = 0;
     walkthrough.focus({ preventScroll: true });
-  }
-  if (updateLocation) {
-    const next = walkthroughOpen ? "#walkthrough" : `${location.pathname}${location.search}`;
-    history.replaceState(null, "", next);
+    walkthrough.scrollTop = scrollTop;
   }
 }
 
-for (const tab of viewTabs) {
-  tab.addEventListener("click", () => showView(tab.dataset.view === "walkthrough" ? "walkthrough" : "canvas"));
+function navigateView(view: DemoView): void {
+  const current = walkthroughOpen ? "walkthrough" : "canvas";
+  if (current === view) return;
+
+  if (view === "canvas") {
+    const scrollTop = walkthrough.scrollTop;
+    // Store the position on the walkthrough entry before adding the canvas entry. Browser Back
+    // then returns to the exact place where the reader left the essay.
+    history.replaceState(
+      { ...(history.state as DemoHistoryState | null), demoView: "walkthrough", walkthroughScrollTop: scrollTop },
+      "",
+      "#walkthrough",
+    );
+    history.pushState({ demoView: "canvas", walkthroughScrollTop: scrollTop }, "", `${location.pathname}${location.search}`);
+    showView("canvas");
+    return;
+  }
+
+  history.pushState({ demoView: "walkthrough", walkthroughScrollTop: 0 }, "", "#walkthrough");
+  showView("walkthrough");
 }
-$("walk-open-demo").addEventListener("click", () => showView("canvas"));
-showView(location.hash === "#walkthrough" ? "walkthrough" : "canvas", false);
+
+walkthrough.addEventListener("scroll", () => {
+  if (!walkthroughOpen || location.hash !== "#walkthrough") return;
+  const state = history.state as DemoHistoryState | null;
+  if (state?.demoView === "walkthrough" && state.walkthroughScrollTop === walkthrough.scrollTop) return;
+  history.replaceState(
+    { ...(state ?? {}), demoView: "walkthrough", walkthroughScrollTop: walkthrough.scrollTop },
+    "",
+    location.href,
+  );
+});
+
+for (const tab of viewTabs) {
+  tab.addEventListener("click", () => navigateView(tab.dataset.view === "walkthrough" ? "walkthrough" : "canvas"));
+}
+$("walk-open-demo").addEventListener("click", () => navigateView("canvas"));
+window.addEventListener("popstate", () => {
+  const view: DemoView = location.hash === "#walkthrough" ? "walkthrough" : "canvas";
+  const state = history.state as DemoHistoryState | null;
+  const scrollTop = view === "walkthrough" && typeof state?.walkthroughScrollTop === "number" ? state.walkthroughScrollTop : 0;
+  showView(view, scrollTop);
+});
+showView(location.hash === "#walkthrough" ? "walkthrough" : "canvas");
 
 // ---------------------------------------------------------------------------------------------
 // Canvas + gestures
@@ -282,7 +322,7 @@ document.addEventListener("keydown", (e) => {
   // the one useful exception: it returns to the interactive view without letting the same key
   // clear the canvas selection underneath.
   if (walkthroughOpen) {
-    if (e.key === "Escape") showView("canvas");
+    if (e.key === "Escape") navigateView("canvas");
     return;
   }
   const k = e.key.toLowerCase();
@@ -758,6 +798,17 @@ const walkPaneViews: WalkPaneView[] = [];
 for (const frame of document.querySelectorAll<HTMLElement>("[data-walk-pane]")) {
   const source = panels.find((p) => p.el.id === `panel-${frame.dataset.walkPane ?? ""}`);
   if (!source) continue;
+  const paneName = frame.closest("figure")?.querySelector("figcaption b")?.textContent?.trim() ?? "component";
+  frame.setAttribute("role", "button");
+  frame.tabIndex = 0;
+  frame.setAttribute("aria-label", `Open the canvas demo for the ${paneName} component`);
+  const openCanvas = () => navigateView("canvas");
+  frame.addEventListener("click", openCanvas);
+  frame.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    openCanvas();
+  });
   const card = document.createElement("section");
   card.className = "panel walk-pane-card";
   card.innerHTML = panelMarkup(source.title, source.note);
