@@ -431,6 +431,43 @@ body {
 .walk-source .t-comment {
   color: #6272a4;
 }
+.walk-code-foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 16px 12px;
+  border-top: 1px solid var(--walk-rule);
+  color: #71717a;
+  font: 10.5px/1.45 var(--walk-code);
+}
+.walk-code-foot > span:first-child {
+  flex: none;
+  padding-top: 2px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.walk-source-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 14px;
+  text-align: right;
+}
+.walk-source-links a {
+  color: var(--walk-dim);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.walk-source-links a:hover {
+  color: var(--walk-mint);
+  text-decoration: underline;
+}
+.walk-source-links a:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--walk-mint);
+  outline-offset: 2px;
+}
 .walk-copy {
   max-width: 540px;
   padding-top: 2px;
@@ -639,6 +676,15 @@ body {
   .walk-source {
     padding: 19px 16px 22px;
     font-size: 11.5px;
+  }
+  .walk-code-foot {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .walk-source-links {
+    justify-content: flex-start;
+    text-align: left;
   }
   .walk-copy h2,
   .walk-end h2 {

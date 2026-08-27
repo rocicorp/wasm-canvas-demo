@@ -150,6 +150,7 @@ try {
       const codeStyle = getComputedStyle(codeEl);
       const titleStyle = getComputedStyle(document.getElementById('walk-title'));
       const sourceStyle = getComputedStyle(first.querySelector('.walk-source'));
+      const sourceLinks = [...document.querySelectorAll('.walk-source-links a')];
       const opened = {
         visible: !essay.hidden,
         mode: document.getElementById('app').classList.contains('walk-mode'),
@@ -165,6 +166,12 @@ try {
           !!document.querySelector('.walk-source .t-key') &&
           !!document.querySelector('.walk-source .t-comment'),
         bodyInert: document.getElementById('body').inert,
+        permalinks:
+          sourceLinks.length === 10 &&
+          sourceLinks.every((link) =>
+            link.href.includes('/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/') &&
+            link.hash.startsWith('#L') && link.hash.includes('-L')
+          ),
         canvasHeldSize: canvasRect.width > 0 && document.getElementById('canvas').getBoundingClientRect().width === canvasRect.width,
       };
 
@@ -719,6 +726,7 @@ try {
   if (!walkthrough.highlighted) fail("the walkthrough source was not syntax highlighted");
   if (!walkthrough.docsStyled) fail("the walkthrough lost the zero-docs visual tokens");
   if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
+  if (!walkthrough.permalinks) fail("the walkthrough source links are not immutable GitHub line anchors");
   if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
   if (!walkthrough.sameViews) fail("opening the walkthrough replaced a maintained query view");
   if (!/groupBy\("color"\)/.test(custom.forkedCode ?? "")) {

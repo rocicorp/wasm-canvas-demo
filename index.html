@@ -104,8 +104,16 @@
     (l) => l.where.visible(1)
   ))
   .orderBy("updated", "desc")
-  .limit(8)
-  .materialize();</pre>
+  .limit(8);
+
+this.view = recent.materialize();</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L112-L118" target="_blank" rel="noopener noreferrer">query · queries.ts:112–118 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/app.ts#L102-L118" target="_blank" rel="noopener noreferrer">materialize · app.ts:102–118 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">01 / Declare the view</p>
@@ -122,23 +130,31 @@
             <section class="walk-step" id="walk-render">
               <div class="walk-code">
                 <div class="walk-code-head"><span>02 · read</span><span>component</span></div>
-                <pre class="walk-source">function RecentWrites() {
-  return recent.data.map((shape) =>
-    row(shape.id, shape.kind, shape.updated)
-  );
-}</pre>
+                <pre class="walk-source">current&lt;A&gt;(q: LiveQuery&lt;A&gt;) {
+  return q.data;
+}
+
+// Inside the frame loop:
+p.render(app.current(live), p.body);</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/app.ts#L644-L647" target="_blank" rel="noopener noreferrer">current rows · app.ts:644–647 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/main.ts#L907-L931" target="_blank" rel="noopener noreferrer">render loop · main.ts:907–931 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">02 / Render current state</p>
-                <h2>The UI is just a function of the view.</h2>
+                <h2>The UI is a function of the query.</h2>
                 <p>
                   The component reads the query’s current rows. The binding schedules a render
-                  when that view folds a delta; application code does not work out what changed
+                  when that query receives an update. Application code does not work out what changed
                   or patch the collection by hand.
                 </p>
                 <p>
                   Loading the initial result and maintaining it are the same abstraction. Once
-                  materialized, <code>recent.data</code> is the answer now.
+                  materialized, <code>recent.data</code> is the answer now and forever.
                 </p>
               </div>
             </section>
@@ -146,45 +162,57 @@
             <section class="walk-step" id="walk-write">
               <div class="walk-code">
                 <div class="walk-code-head"><span>03 · write</span><span>one shape</span></div>
-                <pre class="walk-source">await store.write((tx) => {
-  tx.edit("shape", next, previous);
-});
-
-// recent.data is current here
-// largest.data is current here
-// palette.data is current here
-// canvas cells are current here</pre>
+                <pre class="walk-source">await this.store.write((tx) => {
+  for (const r of addRows)
+    tx.add("shape", r);
+  for (const e of edits)
+    tx.edit("shape", e.prev, e.next);
+  for (const e of layerEdits)
+    tx.edit("layer", e.prev, e.next);
+});</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/write.ts#L276-L284" target="_blank" rel="noopener noreferrer">write transaction · write.ts:276–284 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">03 / Change state once</p>
                 <h2>A write is the only update path.</h2>
                 <p>
                   Dragging a shape writes a row. Inside that same call, the engine derives the
-                  consequences and folds them into every affected view. When the promise resolves,
+                  consequences and updates every affected query. When the promise resolves,
                   the next paint already has the right data.
                 </p>
-                <p>
-                  The write does not know which components exist. The components do not know why
-                  the row changed. That missing coordination code is the point.
-                </p>
-                <aside class="walk-note"><b>Try it</b> Drag a shape and watch the query panels pulse together.</aside>
+                <aside class="walk-note"><b>Try it.</b> Drag a shape and watch the query panels pulse together.</aside>
               </div>
             </section>
 
             <section class="walk-step" id="walk-fanout">
               <div class="walk-code">
                 <div class="walk-code-head"><span>04 · derive</span><span>four views</span></div>
-                <pre class="walk-source">const palette = q.shape
-  .groupBy("color").count();
+                <pre class="walk-source">// palette
+root.shape.groupBy("color").count();
 
-const largest = q.shape
+// largest
+root.shape.where(onVisibleLayer())
   .orderBy("area", "desc").limit(6);
 
-const recent = q.shape
+// recent
+root.shape.where(onVisibleLayer())
   .orderBy("updated", "desc").limit(8);
 
-const cell = q.shape
-  .where.c1(cellId).orderBy("z", "asc");</pre>
+// one canvas cell
+where[cellCol(level)](cell)
+  .where(onVisibleLayer())
+  .orderBy("z", "asc");</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L85-L148" target="_blank" rel="noopener noreferrer">four views · queries.ts:85–148 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">04 / Let queries do the bookkeeping</p>
@@ -195,8 +223,7 @@ const cell = q.shape
                   cell boundary removes it from one canvas query and inserts it into its neighbor.
                 </p>
                 <p>
-                  These are not four update handlers. They are four declarations, each maintained
-                  from the same write stream and charged only for the delta that touched it.
+                  These are not four update handlers. They are four declarations.
                 </p>
               </div>
             </section>
@@ -204,25 +231,29 @@ const cell = q.shape
             <section class="walk-step" id="walk-relationships">
               <div class="walk-code">
                 <div class="walk-code-head"><span>05 · relate</span><span>layer visibility</span></div>
-                <pre class="walk-source">const visible = exists(onLayer,
-  (layer) => layer.where.visible(1)
-);
+                <pre class="walk-source">const onVisibleLayer = () =>
+  exists(onLayer,
+    (l) => l.where.visible(1));
 
-const painted = q.shape
-  .where(visible)
-  .orderBy("z", "asc");
-
-await store.write((tx) => {
-  tx.edit("layer", hidden, visibleLayer);
+extraMuts.push({
+  op: "layer",
+  id,
+  patch: { visible: l.visible ? 0 : 1 },
 });</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L28-L31" target="_blank" rel="noopener noreferrer">relationship · queries.ts:28–31 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/main.ts#L629-L642" target="_blank" rel="noopener noreferrer">eye write · main.ts:629–642 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">05 / Model relationships, not effects</p>
                 <h2>A tiny write can have a large, exact fan-out.</h2>
                 <p>
-                  Visibility lives on one layer row. Painted queries reach it through a
-                  relationship. Hide the layer and one row changes; every dependent query sheds
-                  precisely the shapes that no longer qualify.
+                  Whether a shape is visible is a function of whether or not it's layer is on. Hide the layer: one row changes and every dependent query hides
+                  the correct shapes.
                 </p>
                 <p>
                   You do not walk the shapes, clear caches, or notify panels. The join already
@@ -235,28 +266,29 @@ await store.write((tx) => {
             <section class="walk-step" id="walk-data">
               <div class="walk-code">
                 <div class="walk-code-head"><span>06 · keep identity</span><span>selection</span></div>
-                <pre class="walk-source">const selected = q.shape
+                <pre class="walk-source">root.shape
   .where(exists(onSelection))
-  .orderBy("z", "asc")
-  .materialize();
+  .orderBy("z", "asc");
 
 // Selecting changes data, not the query.
-await store.write((tx) => {
-  tx.add("selection", { shape: id });
-});</pre>
+for (const id of wanted)
+  muts.push({ op: "select", id, on: true });
+
+return this.commit(muts);</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L196-L223" target="_blank" rel="noopener noreferrer">selection query · queries.ts:196–223 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/app.ts#L649-L680" target="_blank" rel="noopener noreferrer">selection write · app.ts:649–680 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">06 / Change data, not query identity</p>
                 <h2>Even ephemeral UI state can be declarative.</h2>
                 <p>
                   The selected ids live in a table. The selection query is registered once and
-                  never changes. Brushing a marquee writes only the rows crossing its edge, and
-                  the fixed query folds those deltas.
-                </p>
-                <p>
-                  Put ids into query arguments instead and every pointer move creates a different
-                  query that must hydrate again. The useful question is simple: did the question
-                  change, or did the data change?
+                  never changes. Dragging a selection box writes only the rows crossing its edge. Impacted queries are updated atomically.
                 </p>
               </div>
             </section>
