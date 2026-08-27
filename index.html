@@ -75,7 +75,7 @@
             <div class="walk-hero-mark" aria-hidden="true">f</div>
             <div class="walk-hero-copy">
               <p class="walk-eyebrow">The frontend model</p>
-              <h1 id="walk-title">UI = F(state)</h1>
+              <h1 id="walk-title"><span>UI = </span><em>F(state)</em></h1>
               <p class="walk-lede">
                 A component declares the data it needs as a query. That query stays alive. Every
                 write updates its result before the next frame. No cache invalidation, refetch
@@ -99,8 +99,10 @@
               <div class="walk-code">
                 <div class="walk-code-head"><span>01 · query</span><span>recent writes</span></div>
                 <pre class="walk-source">const recent = q.shape
-  .where(exists(onLayer,
-    (l) => l.where.visible(1)))
+  .where(exists(
+    onLayer,
+    (l) => l.where.visible(1)
+  ))
   .orderBy("updated", "desc")
   .limit(8)
   .materialize();</pre>
@@ -112,10 +114,6 @@
                   “Recent writes” does not fetch eight rows and leave you holding a snapshot. It
                   creates a maintained view: the newest eight visible shapes, in order, for as
                   long as the component needs it.
-                </p>
-                <p>
-                  The declaration says everything. There is no second path for inserts, edits,
-                  deletes, visibility changes, or reordered rows.
                 </p>
                 <aside class="walk-note"><b>On the canvas</b> The “recent writes” panel is bound to this exact query.</aside>
               </div>

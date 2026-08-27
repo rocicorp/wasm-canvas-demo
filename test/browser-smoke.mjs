@@ -143,14 +143,27 @@ try {
 
       const essay = document.getElementById('walkthrough');
       const first = document.querySelector('.walk-step');
-      const code = first.querySelector('.walk-code').getBoundingClientRect();
+      const codeEl = first.querySelector('.walk-code');
+      const code = codeEl.getBoundingClientRect();
       const prose = first.querySelector('.walk-copy').getBoundingClientRect();
+      const essayStyle = getComputedStyle(essay);
+      const codeStyle = getComputedStyle(codeEl);
+      const titleStyle = getComputedStyle(document.getElementById('walk-title'));
+      const sourceStyle = getComputedStyle(first.querySelector('.walk-source'));
       const opened = {
         visible: !essay.hidden,
         mode: document.getElementById('app').classList.contains('walk-mode'),
         steps: document.querySelectorAll('.walk-step').length,
         paired: code.right < prose.left && Math.abs(code.top - prose.top) < 20,
         highlighted: !!first.querySelector('.walk-source .t-m'),
+        docsStyled:
+          essayStyle.backgroundColor === 'rgb(0, 0, 0)' &&
+          codeStyle.borderRadius === '16px' &&
+          Number(titleStyle.fontWeight) >= 800 &&
+          titleStyle.fontFamily.includes('Muoto') &&
+          sourceStyle.fontFamily.includes('Fira Zero') &&
+          !!document.querySelector('.walk-source .t-key') &&
+          !!document.querySelector('.walk-source .t-comment'),
         bodyInert: document.getElementById('body').inert,
         canvasHeldSize: canvasRect.width > 0 && document.getElementById('canvas').getBoundingClientRect().width === canvasRect.width,
       };
@@ -704,6 +717,7 @@ try {
     fail(`the walkthrough is not six paired code/prose sections: ${JSON.stringify(walkthrough)}`);
   }
   if (!walkthrough.highlighted) fail("the walkthrough source was not syntax highlighted");
+  if (!walkthrough.docsStyled) fail("the walkthrough lost the zero-docs visual tokens");
   if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
   if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
   if (!walkthrough.sameViews) fail("opening the walkthrough replaced a maintained query view");
