@@ -124,6 +124,10 @@ this.view = recent.materialize();</pre>
                   long as the component needs it.
                 </p>
                 <aside class="walk-note"><b>On the canvas</b> The “recent writes” panel is bound to this exact query.</aside>
+                <figure class="walk-pane-ref">
+                  <figcaption><span>Live from the demo</span><b>Recent writes</b></figcaption>
+                  <div class="walk-pane-frame" data-walk-pane="recent" role="img" aria-label="Thumbnail of the recent writes pane"></div>
+                </figure>
               </div>
             </section>
 
@@ -225,6 +229,24 @@ where[cellCol(level)](cell)
                 <p>
                   These are not four update handlers. They are four declarations.
                 </p>
+                <div class="walk-pane-gallery" aria-label="The four derived components in the demo">
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Palette</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="tally" role="img" aria-label="Thumbnail of the palette pane"></div>
+                  </figure>
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Largest</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="top" role="img" aria-label="Thumbnail of the largest shapes pane"></div>
+                  </figure>
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Recent writes</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="recent" role="img" aria-label="Thumbnail of the recent writes pane"></div>
+                  </figure>
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Viewport</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="viewport" role="img" aria-label="Thumbnail of the viewport pane"></div>
+                  </figure>
+                </div>
               </div>
             </section>
 
@@ -260,6 +282,10 @@ extraMuts.push({
                   describes the consequence.
                 </p>
                 <aside class="walk-note"><b>On the canvas</b> Click an eye in “layers” to make one write fan out across thousands of rows.</aside>
+                <figure class="walk-pane-ref">
+                  <figcaption><span>Live from the demo</span><b>Layers</b></figcaption>
+                  <div class="walk-pane-frame" data-walk-pane="layers" role="img" aria-label="Thumbnail of the layers pane"></div>
+                </figure>
               </div>
             </section>
 
@@ -287,9 +313,12 @@ return this.commit(muts);</pre>
                 <p class="walk-step-no">06 / Change data, not query identity</p>
                 <h2>Even ephemeral UI state can be declarative.</h2>
                 <p>
-                  The selected ids live in a table. The selection query is registered once and
-                  never changes. Dragging a selection box writes only the rows crossing its edge. Impacted queries are updated atomically.
+                  The selected ids live in a table. Dragging a selection box writes only the rows crossing its edge. Impacted queries are updated atomically.
                 </p>
+                <figure class="walk-pane-ref">
+                  <figcaption><span>Live from the demo</span><b>Selection</b></figcaption>
+                  <div class="walk-pane-frame" data-walk-pane="selection" role="img" aria-label="Thumbnail of the selection pane"></div>
+                </figure>
               </div>
             </section>
           </article>

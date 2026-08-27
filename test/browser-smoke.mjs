@@ -151,6 +151,7 @@ try {
       const titleStyle = getComputedStyle(document.getElementById('walk-title'));
       const sourceStyle = getComputedStyle(first.querySelector('.walk-source'));
       const sourceLinks = [...document.querySelectorAll('.walk-source-links a')];
+      const paneThumbs = [...document.querySelectorAll('.walk-pane-frame')];
       const opened = {
         visible: !essay.hidden,
         mode: document.getElementById('app').classList.contains('walk-mode'),
@@ -172,6 +173,18 @@ try {
             link.href.includes('/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/') &&
             link.hash.startsWith('#L') && link.hash.includes('-L')
           ),
+        paneThumbs:
+          paneThumbs.length === 7 &&
+          paneThumbs.every((thumb) =>
+            thumb.querySelector('.panel.walk-pane-card') &&
+            !thumb.querySelector('.panel.walk-pane-card[id]')
+          ) &&
+          !!document.querySelector('[data-walk-pane="recent"] .pbody .row') &&
+          !!document.querySelector('[data-walk-pane="layers"] .pbody .lrow') &&
+          [...document.querySelectorAll('[data-walk-pane="recent"] .pbody')].every(
+            (body) => body.textContent === document.querySelector('#panel-recent .pbody')?.textContent
+          ),
+        queryCountHeld: app.queries().length === queryViews.length,
         canvasHeldSize: canvasRect.width > 0 && document.getElementById('canvas').getBoundingClientRect().width === canvasRect.width,
       };
 
@@ -180,7 +193,9 @@ try {
       return {
         ...opened,
         closed: essay.hidden && !document.getElementById('body').inert,
-        sameViews: queryViews.every((view, i) => app.queries()[i]?.view === view),
+        sameViews:
+          app.queries().length === queryViews.length &&
+          queryViews.every((view, i) => app.queries()[i]?.view === view),
       };
     })()
   `);
@@ -727,6 +742,8 @@ try {
   if (!walkthrough.docsStyled) fail("the walkthrough lost the zero-docs visual tokens");
   if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
   if (!walkthrough.permalinks) fail("the walkthrough source links are not immutable GitHub line anchors");
+  if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");
+  if (!walkthrough.queryCountHeld) fail("opening the walkthrough registered duplicate queries for its live cards");
   if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
   if (!walkthrough.sameViews) fail("opening the walkthrough replaced a maintained query view");
   if (!/groupBy\("color"\)/.test(custom.forkedCode ?? "")) {
