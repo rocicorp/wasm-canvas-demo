@@ -19,6 +19,10 @@
                and from a bare `vite dev` on :5173, where a site-relative path 404s. -->
           <a href="https://rindle.sh/demo">zero</a> paint demo
         </div>
+        <nav id="viewtabs" aria-label="Demo views">
+          <button class="viewtab on" data-view="canvas" aria-controls="body" aria-pressed="true">canvas</button>
+          <button class="viewtab" data-view="walkthrough" aria-controls="walkthrough" aria-pressed="false">walkthrough</button>
+        </nav>
         <div class="sub">
           the canvas, the palette, the leaderboard, the feed — each is a live query over an
           in-tab wasm database, kept fresh by folding deltas
@@ -29,7 +33,7 @@
           <span class="chip" id="hud-wv">write→visible —</span>
           <span class="chip" id="hud-rows">0 shapes</span>
           <span class="chip" id="hud-cells" title="the canvas is one live query per visible cell; panning subscribes and drops them at the edges">0 cells</span>
-          <span class="chip"><span id="hud-fps">— fps</span><canvas id="spark" width="120" height="22"></canvas></span>
+          <span class="chip" id="hud-frame"><span id="hud-fps">— fps</span><canvas id="spark" width="120" height="22"></canvas></span>
         </div>
       </header>
 
@@ -64,6 +68,269 @@
           <!-- panels are appended here -->
         </aside>
       </div>
+
+      <section id="walkthrough" aria-labelledby="walk-title" tabindex="-1" hidden>
+        <div class="walk-shell">
+          <header class="walk-hero">
+            <div class="walk-hero-mark" aria-hidden="true">f</div>
+            <div class="walk-hero-copy">
+              <p class="walk-eyebrow">The frontend model</p>
+              <h1 id="walk-title"><span>UI = </span><em>F(state)</em></h1>
+              <p class="walk-lede">
+                A component declares the data it needs as a query. That query stays alive. Every
+                write updates its result before the next frame. No cache invalidation, refetch
+                choreography, or hand-written synchronization.
+              </p>
+              <div class="walk-invariant" aria-label="The data flow">
+                <span><b>01</b> query once</span><i aria-hidden="true">→</i>
+                <span><b>02</b> write state</span><i aria-hidden="true">→</i>
+                <span><b>03</b> every view is current</span>
+              </div>
+            </div>
+          </header>
+
+          <div class="walk-rule">
+            <span>Read the program</span>
+            <span>code on the left · model on the right</span>
+          </div>
+
+          <article class="literate">
+            <section class="walk-step" id="walk-declare">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>01 · query</span><span>recent writes</span></div>
+                <pre class="walk-source">const recent = q.shape
+  .where(exists(
+    onLayer,
+    (l) => l.where.visible(1)
+  ))
+  .orderBy("updated", "desc")
+  .limit(8);
+
+this.view = recent.materialize();</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L112-L118" target="_blank" rel="noopener noreferrer">query · queries.ts:112–118 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/app.ts#L102-L118" target="_blank" rel="noopener noreferrer">materialize · app.ts:102–118 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">01 / Declare the view</p>
+                <h2>The query is the component’s data contract.</h2>
+                <p>
+                  “Recent writes” does not fetch eight rows and leave you holding a snapshot. It
+                  creates a maintained view: the newest eight visible shapes, in order, for as
+                  long as the component needs it.
+                </p>
+                <aside class="walk-note"><b>On the canvas</b> The “recent writes” panel is bound to this exact query.</aside>
+                <figure class="walk-pane-ref">
+                  <figcaption><span>Live from the demo</span><b>Recent writes</b></figcaption>
+                  <div class="walk-pane-frame" data-walk-pane="recent" role="img" aria-label="Thumbnail of the recent writes pane"></div>
+                </figure>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-render">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>02 · read</span><span>component</span></div>
+                <pre class="walk-source">current&lt;A&gt;(q: LiveQuery&lt;A&gt;) {
+  return q.data;
+}
+
+// Inside the frame loop:
+p.render(app.current(live), p.body);</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/app.ts#L644-L647" target="_blank" rel="noopener noreferrer">current rows · app.ts:644–647 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/main.ts#L907-L931" target="_blank" rel="noopener noreferrer">render loop · main.ts:907–931 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">02 / Render current state</p>
+                <h2>The UI is a function of the query.</h2>
+                <p>
+                  The component reads the query’s current rows. The binding schedules a render
+                  when that query receives an update. Application code does not work out what changed
+                  or patch the collection by hand.
+                </p>
+                <p>
+                  Loading the initial result and maintaining it are the same abstraction. Once
+                  materialized, <code>recent.data</code> is the answer now and forever.
+                </p>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-write">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>03 · write</span><span>one shape</span></div>
+                <pre class="walk-source">await this.store.write((tx) => {
+  for (const r of addRows)
+    tx.add("shape", r);
+  for (const e of edits)
+    tx.edit("shape", e.prev, e.next);
+  for (const e of layerEdits)
+    tx.edit("layer", e.prev, e.next);
+});</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/write.ts#L276-L284" target="_blank" rel="noopener noreferrer">write transaction · write.ts:276–284 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">03 / Change state once</p>
+                <h2>A write is the only update path.</h2>
+                <p>
+                  Dragging a shape writes a row. Inside that same call, the engine derives the
+                  consequences and updates every affected query. When the promise resolves,
+                  the next paint already has the right data.
+                </p>
+                <aside class="walk-note"><b>Try it.</b> Drag a shape and watch the query panels pulse together.</aside>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-fanout">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>04 · derive</span><span>four views</span></div>
+                <pre class="walk-source">// palette
+root.shape.groupBy("color").count();
+
+// largest
+root.shape.where(onVisibleLayer())
+  .orderBy("area", "desc").limit(6);
+
+// recent
+root.shape.where(onVisibleLayer())
+  .orderBy("updated", "desc").limit(8);
+
+// one canvas cell
+where[cellCol(level)](cell)
+  .where(onVisibleLayer())
+  .orderBy("z", "asc");</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L85-L148" target="_blank" rel="noopener noreferrer">four views · queries.ts:85–148 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">04 / Let queries do the bookkeeping</p>
+                <h2>One row can have many derived consequences.</h2>
+                <p>
+                  Recoloring moves a count between palette groups. Resizing can reseat the
+                  leaderboard. Any edit moves the shape to the top of the feed. Dragging across a
+                  cell boundary removes it from one canvas query and inserts it into its neighbor.
+                </p>
+                <p>
+                  These are not four update handlers. They are four declarations.
+                </p>
+                <div class="walk-pane-gallery" aria-label="The four derived components in the demo">
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Palette</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="tally" role="img" aria-label="Thumbnail of the palette pane"></div>
+                  </figure>
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Largest</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="top" role="img" aria-label="Thumbnail of the largest shapes pane"></div>
+                  </figure>
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Recent writes</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="recent" role="img" aria-label="Thumbnail of the recent writes pane"></div>
+                  </figure>
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Viewport</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="viewport" role="img" aria-label="Thumbnail of the viewport pane"></div>
+                  </figure>
+                </div>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-relationships">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>05 · relate</span><span>layer visibility</span></div>
+                <pre class="walk-source">const onVisibleLayer = () =>
+  exists(onLayer,
+    (l) => l.where.visible(1));
+
+extraMuts.push({
+  op: "layer",
+  id,
+  patch: { visible: l.visible ? 0 : 1 },
+});</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L28-L31" target="_blank" rel="noopener noreferrer">relationship · queries.ts:28–31 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/main.ts#L629-L642" target="_blank" rel="noopener noreferrer">eye write · main.ts:629–642 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">05 / Model relationships, not effects</p>
+                <h2>A tiny write can have a large, exact fan-out.</h2>
+                <p>
+                  Whether a shape is visible is a function of whether or not it's layer is on. Hide the layer: one row changes and every dependent query hides
+                  the correct shapes.
+                </p>
+                <p>
+                  You do not walk the shapes, clear caches, or notify panels. The join already
+                  describes the consequence.
+                </p>
+                <aside class="walk-note"><b>On the canvas</b> Click an eye in “layers” to make one write fan out across thousands of rows.</aside>
+                <figure class="walk-pane-ref">
+                  <figcaption><span>Live from the demo</span><b>Layers</b></figcaption>
+                  <div class="walk-pane-frame" data-walk-pane="layers" role="img" aria-label="Thumbnail of the layers pane"></div>
+                </figure>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-data">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>06 · keep identity</span><span>selection</span></div>
+                <pre class="walk-source">root.shape
+  .where(exists(onSelection))
+  .orderBy("z", "asc");
+
+// Selecting changes data, not the query.
+for (const id of wanted)
+  muts.push({ op: "select", id, on: true });
+
+return this.commit(muts);</pre>
+                <div class="walk-code-foot">
+                  <span>source</span>
+                  <span class="walk-source-links">
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/queries.ts#L196-L223" target="_blank" rel="noopener noreferrer">selection query · queries.ts:196–223 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/src/app.ts#L649-L680" target="_blank" rel="noopener noreferrer">selection write · app.ts:649–680 <span aria-hidden="true">↗</span></a>
+                  </span>
+                </div>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">06 / Change data, not query identity</p>
+                <h2>Even ephemeral UI state can be declarative.</h2>
+                <p>
+                  The selected ids live in a table. Dragging a selection box writes only the rows crossing its edge. Impacted queries are updated atomically.
+                </p>
+                <figure class="walk-pane-ref">
+                  <figcaption><span>Live from the demo</span><b>Selection</b></figcaption>
+                  <div class="walk-pane-frame" data-walk-pane="selection" role="img" aria-label="Thumbnail of the selection pane"></div>
+                </figure>
+              </div>
+            </section>
+          </article>
+
+          <footer class="walk-end">
+            <p class="walk-eyebrow">That is the whole loop</p>
+            <h2>Declare what each component sees. Write what happened.</h2>
+            <p>The engine keeps the two connected. The canvas makes that connection visible.</p>
+            <button id="walk-open-demo" class="walk-cta">open the canvas <span aria-hidden="true">→</span></button>
+          </footer>
+        </div>
+      </section>
 
       <footer id="foot">
         <span id="difftotal"></span>

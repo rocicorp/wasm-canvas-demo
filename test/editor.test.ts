@@ -23,12 +23,14 @@ function labels(text: string, caret = text.length): string[] | null {
 // ---------------------------------------------------------------------------------------------
 
 test("the highlighter classifies every token family and escapes html", () => {
-  const html = highlightQuery(`q.shape.where.color("coral").orderBy("area", "desc").limit(5) < ge`);
+  const html = highlightQuery(`const result = q.shape.where.color("coral").orderBy("area", "desc").limit(5) < ge\n// live view`);
+  assert.match(html, /<i class="t-key">const<\/i>/, "language keywords read as keywords");
   assert.match(html, /<i class="t-fn">q<\/i>/, "the root is a fn token");
   assert.match(html, /<i class="t-col">shape<\/i>/, "schema names read as schema");
   assert.match(html, /<i class="t-m">where<\/i>/, "builder verbs read as api");
   assert.match(html, /<i class="t-str">"coral"<\/i>/);
   assert.match(html, /<i class="t-num">5<\/i>/);
+  assert.match(html, /<i class="t-comment">\/\/ live view<\/i>/, "comments stay one muted token");
   assert.match(html, /&lt;/, "raw < is escaped");
 });
 

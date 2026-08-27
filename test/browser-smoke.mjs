@@ -130,6 +130,76 @@ try {
     })()
   `);
 
+  // The literate view is a second reading of this SAME running program. Opening it must expose
+  // the paired code/prose layout without collapsing the canvas underneath (which would churn
+  // cell subscriptions), and leaving it must return to the exact maintained query objects.
+  const walkthrough = await cdp.eval(`
+    (async () => {
+      const app = globalThis.rindleDraw;
+      const queryViews = app.queries().map((q) => q.view);
+      const canvasRect = document.getElementById('canvas').getBoundingClientRect();
+      document.querySelector('[data-view="walkthrough"]').click();
+      await new Promise((r) => requestAnimationFrame(r));
+
+      const essay = document.getElementById('walkthrough');
+      const first = document.querySelector('.walk-step');
+      const codeEl = first.querySelector('.walk-code');
+      const code = codeEl.getBoundingClientRect();
+      const prose = first.querySelector('.walk-copy').getBoundingClientRect();
+      const essayStyle = getComputedStyle(essay);
+      const codeStyle = getComputedStyle(codeEl);
+      const titleStyle = getComputedStyle(document.getElementById('walk-title'));
+      const sourceStyle = getComputedStyle(first.querySelector('.walk-source'));
+      const sourceLinks = [...document.querySelectorAll('.walk-source-links a')];
+      const paneThumbs = [...document.querySelectorAll('.walk-pane-frame')];
+      const opened = {
+        visible: !essay.hidden,
+        mode: document.getElementById('app').classList.contains('walk-mode'),
+        steps: document.querySelectorAll('.walk-step').length,
+        paired: code.right < prose.left && Math.abs(code.top - prose.top) < 20,
+        highlighted: !!first.querySelector('.walk-source .t-m'),
+        docsStyled:
+          essayStyle.backgroundColor === 'rgb(0, 0, 0)' &&
+          codeStyle.borderRadius === '16px' &&
+          Number(titleStyle.fontWeight) >= 800 &&
+          titleStyle.fontFamily.includes('Muoto') &&
+          sourceStyle.fontFamily.includes('Fira Zero') &&
+          !!document.querySelector('.walk-source .t-key') &&
+          !!document.querySelector('.walk-source .t-comment'),
+        bodyInert: document.getElementById('body').inert,
+        permalinks:
+          sourceLinks.length === 10 &&
+          sourceLinks.every((link) =>
+            link.href.includes('/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/') &&
+            link.hash.startsWith('#L') && link.hash.includes('-L')
+          ),
+        paneThumbs:
+          paneThumbs.length === 7 &&
+          paneThumbs.every((thumb) =>
+            thumb.querySelector('.panel.walk-pane-card') &&
+            !thumb.querySelector('.panel.walk-pane-card[id]')
+          ) &&
+          !!document.querySelector('[data-walk-pane="recent"] .pbody .row') &&
+          !!document.querySelector('[data-walk-pane="layers"] .pbody .lrow') &&
+          [...document.querySelectorAll('[data-walk-pane="recent"] .pbody')].every(
+            (body) => body.textContent === document.querySelector('#panel-recent .pbody')?.textContent
+          ),
+        queryCountHeld: app.queries().length === queryViews.length,
+        canvasHeldSize: canvasRect.width > 0 && document.getElementById('canvas').getBoundingClientRect().width === canvasRect.width,
+      };
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await new Promise((r) => requestAnimationFrame(r));
+      return {
+        ...opened,
+        closed: essay.hidden && !document.getElementById('body').inert,
+        sameViews:
+          app.queries().length === queryViews.length &&
+          queryViews.every((view, i) => app.queries()[i]?.view === view),
+      };
+    })()
+  `);
+
   // The custom-pane flow, as clicks: fork a built-in, edit it, apply, break it, close it.
   const custom = await cdp.eval(`
     (async () => {
@@ -638,6 +708,7 @@ try {
     `  ${report.rows} rows · wasm heap ${fmtMB(report.heapBefore)} → ${fmtMB(report.heapAfter)}\n` +
       `  write→visible p50 ${report.writeVisibleP50.toFixed(2)} ms\n` +
       `  differential ${report.checks} checks, ${report.mismatches} mismatches\n` +
+      `  walkthrough: ${walkthrough.steps} paired code/prose sections, same live query objects on return\n` +
       `  custom pane: forked, edited, broke, closed — ${JSON.stringify(custom.rowsText)}\n` +
       `  multi-select: brushed ${gestures.brushed} of ${gestures.expected}, dragged as a group, ` +
       `shift-click ${gestures.added}→${gestures.removed}, space-pan kept ${gestures.selAfterPan}, ` +
@@ -661,6 +732,20 @@ try {
   if (!/orderBy\("z", "asc"\)/.test(report.canvasQ)) {
     fail(`the canvas is not showing its own query: ${JSON.stringify(report.canvasQ)}`);
   }
+  if (!walkthrough.visible || !walkthrough.mode || !walkthrough.closed) {
+    fail(`the walkthrough did not open and close cleanly: ${JSON.stringify(walkthrough)}`);
+  }
+  if (walkthrough.steps !== 6 || !walkthrough.paired) {
+    fail(`the walkthrough is not six paired code/prose sections: ${JSON.stringify(walkthrough)}`);
+  }
+  if (!walkthrough.highlighted) fail("the walkthrough source was not syntax highlighted");
+  if (!walkthrough.docsStyled) fail("the walkthrough lost the zero-docs visual tokens");
+  if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
+  if (!walkthrough.permalinks) fail("the walkthrough source links are not immutable GitHub line anchors");
+  if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");
+  if (!walkthrough.queryCountHeld) fail("opening the walkthrough registered duplicate queries for its live cards");
+  if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
+  if (!walkthrough.sameViews) fail("opening the walkthrough replaced a maintained query view");
   if (!/groupBy\("color"\)/.test(custom.forkedCode ?? "")) {
     fail(`the fork did not seed the tally's code: ${JSON.stringify(custom.forkedCode)}`);
   }

@@ -31,6 +31,52 @@ $("boot").hidden = true;
 $("app").hidden = false;
 
 // ---------------------------------------------------------------------------------------------
+// Canvas / walkthrough — two readings of the same program
+// ---------------------------------------------------------------------------------------------
+
+let walkthroughOpen = false;
+let walkThumbsDirty = false;
+const walkthrough = $("walkthrough");
+const body = $("body");
+const foot = $("foot");
+const viewTabs = [...document.querySelectorAll<HTMLButtonElement>(".viewtab")];
+
+// The essay's snippets use the same small tokenizer as the live query panels. It is deliberately
+// done from their text content: the HTML stays readable source, and the highlighter remains the
+// single owner of token colours everywhere code appears on the page.
+for (const source of document.querySelectorAll<HTMLElement>(".walk-source")) {
+  source.innerHTML = highlightQuery(source.textContent ?? "");
+}
+
+function showView(view: "canvas" | "walkthrough", updateLocation = true): void {
+  walkthroughOpen = view === "walkthrough";
+  walkthrough.hidden = !walkthroughOpen;
+  body.inert = walkthroughOpen;
+  foot.inert = walkthroughOpen;
+  $("app").classList.toggle("walk-mode", walkthroughOpen);
+  for (const tab of viewTabs) {
+    const on = tab.dataset.view === view;
+    tab.classList.toggle("on", on);
+    tab.setAttribute("aria-pressed", String(on));
+  }
+  if (walkthroughOpen) {
+    walkThumbsDirty = true;
+    walkthrough.scrollTop = 0;
+    walkthrough.focus({ preventScroll: true });
+  }
+  if (updateLocation) {
+    const next = walkthroughOpen ? "#walkthrough" : `${location.pathname}${location.search}`;
+    history.replaceState(null, "", next);
+  }
+}
+
+for (const tab of viewTabs) {
+  tab.addEventListener("click", () => showView(tab.dataset.view === "walkthrough" ? "walkthrough" : "canvas"));
+}
+$("walk-open-demo").addEventListener("click", () => showView("canvas"));
+showView(location.hash === "#walkthrough" ? "walkthrough" : "canvas", false);
+
+// ---------------------------------------------------------------------------------------------
 // Canvas + gestures
 // ---------------------------------------------------------------------------------------------
 
@@ -232,6 +278,13 @@ document.addEventListener("keydown", (e) => {
   // Typing in a custom pane's editor is not a canvas gesture — a stray Backspace must not
   // delete the selected shape.
   if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
+  // The essay sits over a still-live canvas, but its keyboard belongs to the reader. Escape is
+  // the one useful exception: it returns to the interactive view without letting the same key
+  // clear the canvas selection underneath.
+  if (walkthroughOpen) {
+    if (e.key === "Escape") showView("canvas");
+    return;
+  }
   const k = e.key.toLowerCase();
   const cmd = e.metaKey || e.ctrlKey;
 
@@ -373,6 +426,8 @@ function zoomToFit(): void {
 // ---------------------------------------------------------------------------------------------
 
 interface Panel {
+  title: string;
+  note?: string;
   q: () => LiveQuery<unknown> | null;
   el: HTMLElement;
   body: HTMLElement;
@@ -391,6 +446,18 @@ interface Panel {
 
 const panels: Panel[] = [];
 
+function panelMarkup(title: string, note?: string): string {
+  return (
+    `<header><h2>${title}</h2><span class="ph-right"><span class="hyd"></span>` +
+    `<button class="fork" title="fork — copy this query into a pane you can edit">fork</button>` +
+    `<button class="check" title="recompute this query from scratch in plain JS and compare">✓</button></span></header>` +
+    `<pre class="code"></pre>` +
+    `<div class="pbody"></div>` +
+    (note ? `<p class="note">${note}</p>` : "") +
+    `<div class="delta"></div>`
+  );
+}
+
 function panel(
   id: string,
   title: string,
@@ -402,16 +469,11 @@ function panel(
   const el = document.createElement("section");
   el.className = "panel";
   el.id = `panel-${id}`;
-  el.innerHTML =
-    `<header><h2>${title}</h2><span class="ph-right"><span class="hyd"></span>` +
-    `<button class="fork" title="fork — copy this query into a pane you can edit">fork</button>` +
-    `<button class="check" title="recompute this query from scratch in plain JS and compare">✓</button></span></header>` +
-    `<pre class="code"></pre>` +
-    `<div class="pbody"></div>` +
-    (note ? `<p class="note">${note}</p>` : "") +
-    `<div class="delta"></div>`;
+  el.innerHTML = panelMarkup(title, note);
   host.appendChild(el);
   const p: Panel = {
+    title,
+    note,
     q,
     el,
     body: el.querySelector(".pbody")!,
@@ -485,9 +547,9 @@ const selPanel = panel(
         `<div class="row">${[...kinds].map(([k, n]) => `${n} ${k}`).join(" · ")}</div>` +
         `<div class="row dim">${fmtInt(area)} total area · ` +
         `${fmtInt(new Set(shapes.map((s) => s.color)).size)} colours</div>` +
-        `<div class="prow"><button id="del-sel" class="ghost">delete ${fmtInt(shapes.length)} rows</button>` +
+        `<div class="prow"><button class="ghost del-sel">delete ${fmtInt(shapes.length)} rows</button>` +
         `<span class="hint">no re-hydrate since boot</span></div>`;
-      body.querySelector("#del-sel")?.addEventListener("click", () => {
+      body.querySelector(".del-sel")?.addEventListener("click", () => {
         app.mark("delete");
         for (const id of app.selectedIds) extraMuts.push({ op: "remove", id });
         void app.select([]);
@@ -509,9 +571,9 @@ const selPanel = panel(
       field("updated", `t${s.updated}`) +
       field("by", whoName(s.who)) +
       `</div>` +
-      `<div class="prow"><button id="del-sel" class="ghost">delete row</button>` +
+      `<div class="prow"><button class="ghost del-sel">delete row</button>` +
       `<span class="hint">selecting wrote one row</span></div>`;
-    body.querySelector("#del-sel")?.addEventListener("click", () => {
+    body.querySelector(".del-sel")?.addEventListener("click", () => {
       app.mark("delete");
       for (const id of app.selectedIds) extraMuts.push({ op: "remove", id });
       void app.select([]);
@@ -679,6 +741,70 @@ panel(
   "newest write first — whoever wrote last is on top; the robots never stop",
 );
 
+/** The essay renders the same panel component against the same maintained LiveQuery. These are
+ *  extra DOM views, not extra subscriptions: no call here materializes or registers a query. */
+interface WalkPaneView {
+  source: Panel;
+  el: HTMLElement;
+  body: HTMLElement;
+  codeEl: HTMLElement;
+  deltaEl: HTMLElement;
+  hydEl: HTMLElement;
+  renderedSeq: number;
+  renderedCode: string;
+}
+
+const walkPaneViews: WalkPaneView[] = [];
+for (const frame of document.querySelectorAll<HTMLElement>("[data-walk-pane]")) {
+  const source = panels.find((p) => p.el.id === `panel-${frame.dataset.walkPane ?? ""}`);
+  if (!source) continue;
+  const card = document.createElement("section");
+  card.className = "panel walk-pane-card";
+  card.innerHTML = panelMarkup(source.title, source.note);
+  card.inert = true;
+  card.setAttribute("aria-hidden", "true");
+  frame.replaceChildren(card);
+  walkPaneViews.push({
+    source,
+    el: card,
+    body: card.querySelector(".pbody")!,
+    codeEl: card.querySelector(".code")!,
+    deltaEl: card.querySelector(".delta")!,
+    hydEl: card.querySelector(".hyd")!,
+    renderedSeq: -1,
+    renderedCode: "",
+  });
+}
+
+function renderWalkPaneViews(): void {
+  for (const view of walkPaneViews) {
+    const { source } = view;
+    const live = source.q();
+    if (!live) {
+      if (view.renderedSeq !== -2) {
+        view.renderedSeq = -2;
+        view.codeEl.textContent = "";
+        view.deltaEl.textContent = "";
+        source.render([], view.body);
+      }
+      continue;
+    }
+    const seq = source.seqOf ? source.seqOf() : live.seq;
+    if (!walkThumbsDirty && seq === view.renderedSeq) continue;
+    if (view.renderedSeq >= 0 && seq !== view.renderedSeq) flash(view.el, "fold");
+    view.renderedSeq = seq;
+    const code = live.def.code(live.args);
+    if (code !== view.renderedCode) {
+      view.renderedCode = code;
+      view.codeEl.innerHTML = highlightQuery(code);
+    }
+    source.render(app.current(live), view.body);
+    view.deltaEl.textContent = live.lastDelta ? `last delta  ${live.lastDelta}` : "";
+    view.hydEl.textContent = source.alwaysHyd ? `hydrated ${fmtMs(live.hydrateMs)}` : "";
+  }
+  walkThumbsDirty = false;
+}
+
 // ---------------------------------------------------------------------------------------------
 // The canvas's own query, pinned to the canvas. Every rail panel shows its chain; the canvas is
 // the flagship view, so its chain sits on the drawing it paints — flashing when the view folds,
@@ -742,6 +868,8 @@ function addCustomPane(code: string): void {
   // Overlay highlighting + schema-aware completions; typing repaints via its own `input` hook.
   enhanceEditor(el.querySelector<HTMLElement>(".qwrap")!).paint();
   const p: Panel = {
+    title: `yours · ${id}`,
+    note: "✓ checks the folded view against a fresh subscription of the same query",
     q: () => app.customs.find((c) => c.id === id)?.live ?? null,
     el,
     body: el.querySelector(".pbody")!,
@@ -934,6 +1062,8 @@ function frame(now: number): void {
     // hydrated once, at boot, empty — selecting has not re-run it since.
     hyd.textContent = p.alwaysHyd ? `hydrated ${fmtMs(live.hydrateMs)}` : "";
   }
+
+  if (walkthroughOpen) renderWalkPaneViews();
 
   drawSpark();
   if (now - lastHud > 200) {

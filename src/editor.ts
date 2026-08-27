@@ -26,6 +26,7 @@ import { schema } from "./schema.ts";
  *  last two split on membership, so `shape`/`x`/`color` read as YOUR schema, not as API. */
 export const BUILDER_METHODS = ["where", "orderBy", "limit", "groupBy", "count", "countAs", "select"];
 const METHOD_SET = new Set(BUILDER_METHODS);
+const KEYWORD_SET = new Set(["await", "const", "function", "let", "return"]);
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
@@ -34,11 +35,13 @@ export function highlightQuery(code: string): string {
   // and the overlay needs output glyphs to match input glyphs one-for-one for the caret to line up.
   let out = "";
   let last = 0;
-  for (const m of code.matchAll(/"[^"]*"|\d+(?:\.\d+)?|[A-Za-z_$][A-Za-z0-9_$]*/g)) {
+  for (const m of code.matchAll(/\/\/[^\n]*|"[^"]*"|\d+(?:\.\d+)?|[A-Za-z_$][A-Za-z0-9_$]*/g)) {
     out += esc(code.slice(last, m.index));
     const tok = m[0];
-    if (tok.startsWith('"')) out += `<i class="t-str">${esc(tok)}</i>`;
+    if (tok.startsWith("//")) out += `<i class="t-comment">${esc(tok)}</i>`;
+    else if (tok.startsWith('"')) out += `<i class="t-str">${esc(tok)}</i>`;
     else if (/^\d/.test(tok)) out += `<i class="t-num">${tok}</i>`;
+    else if (KEYWORD_SET.has(tok)) out += `<i class="t-key">${tok}</i>`;
     else if (code[m.index - 1] !== ".") out += `<i class="t-fn">${tok}</i>`; // `q`, `ge`, `le`
     else out += METHOD_SET.has(tok) ? `<i class="t-m">${tok}</i>` : `<i class="t-col">${tok}</i>`;
     last = m.index + tok.length;
