@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>every pixel is a query · rindle</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="boot">
+      <h1>every pixel is a query</h1>
+      <p class="lede">booting the wasm engine…</p>
+    </div>
+
+    <main id="app" hidden>
+      <header id="topbar">
+        <div class="brand">
+          <!-- Absolute, not `/demo`: this page is served both from rindle.sh/demo/canvas/
+               and from a bare `vite dev` on :5173, where a site-relative path 404s. -->
+          <a href="https://rindle.sh/demo">rindle</a> · ivm paint demo
+        </div>
+        <div class="sub">
+          the canvas, the palette, the leaderboard, the feed — each is a live query over an
+          in-tab wasm database, kept fresh by folding deltas
+        </div>
+        <div class="spacer"></div>
+        <div class="hudchips">
+          <span class="chip" id="hud-writes">0 writes/s</span>
+          <span class="chip" id="hud-wv">write→visible —</span>
+          <span class="chip" id="hud-rows">0 shapes</span>
+          <span class="chip" id="hud-cells" title="the canvas is one live query per visible cell; panning subscribes and drops them at the edges">0 cells</span>
+          <span class="chip"><span id="hud-fps">— fps</span><canvas id="spark" width="120" height="22"></canvas></span>
+        </div>
+      </header>
+
+      <div id="body">
+        <section id="stage">
+          <canvas id="canvas"></canvas>
+          <div id="tools" class="floating"></div>
+          <div class="floating actions">
+            <!-- Undo is a WRITE here, not a restore: the inverse delta of the last gesture,
+                 committed through the same funnel your hand uses, folded by every view. -->
+            <button id="undo" class="hbtn" title="undo (⌘Z)">↶</button>
+            <button id="redo" class="hbtn" title="redo (⇧⌘Z)">↷</button>
+            <span class="sep"></span>
+            <button id="confetti" title="more rows, in one commit — every view folds them in (each press doubles)">+2,000 shapes</button>
+            <button id="bots" title="the ambient writers' rate — each press turns it up (then off); more deltas folding into your views"></button>
+          </div>
+          <div id="canvasq" class="floating qfloat">
+            <div class="qhead">
+              <span>canvas</span>
+              <span class="ph-right">
+                <button class="check" title="recompute the canvas's query from scratch in plain JS and compare">✓</button>
+              </span>
+            </div>
+            <pre class="code"></pre>
+            <div class="delta"></div>
+          </div>
+          <div id="hud-fold" class="floating foldline"></div>
+          <div id="status" class="floating statusline"></div>
+        </section>
+
+        <aside id="rail">
+          <!-- panels are appended here -->
+        </aside>
+      </div>
+
+      <footer id="foot">
+        <span id="difftotal"></span>
+        <button id="checkall" class="ghost" title="recompute every query from scratch and compare against the folded views">check all now</button>
+        <span class="spacer"></span>
+        <span id="memline" class="dim"></span>
+      </footer>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

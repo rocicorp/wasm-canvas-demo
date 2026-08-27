@@ -1,0 +1,6 @@
+node_modules/
+
+# The vite build output. `test/browser-smoke.mjs` builds into it first.
+dist/
+
+.DS_Store
