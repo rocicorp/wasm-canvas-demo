@@ -130,6 +130,41 @@ try {
     })()
   `);
 
+  // The literate view is a second reading of this SAME running program. Opening it must expose
+  // the paired code/prose layout without collapsing the canvas underneath (which would churn
+  // cell subscriptions), and leaving it must return to the exact maintained query objects.
+  const walkthrough = await cdp.eval(`
+    (async () => {
+      const app = globalThis.rindleDraw;
+      const queryViews = app.queries().map((q) => q.view);
+      const canvasRect = document.getElementById('canvas').getBoundingClientRect();
+      document.querySelector('[data-view="walkthrough"]').click();
+      await new Promise((r) => requestAnimationFrame(r));
+
+      const essay = document.getElementById('walkthrough');
+      const first = document.querySelector('.walk-step');
+      const code = first.querySelector('.walk-code').getBoundingClientRect();
+      const prose = first.querySelector('.walk-copy').getBoundingClientRect();
+      const opened = {
+        visible: !essay.hidden,
+        mode: document.getElementById('app').classList.contains('walk-mode'),
+        steps: document.querySelectorAll('.walk-step').length,
+        paired: code.right < prose.left && Math.abs(code.top - prose.top) < 20,
+        highlighted: !!first.querySelector('.walk-source .t-m'),
+        bodyInert: document.getElementById('body').inert,
+        canvasHeldSize: canvasRect.width > 0 && document.getElementById('canvas').getBoundingClientRect().width === canvasRect.width,
+      };
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await new Promise((r) => requestAnimationFrame(r));
+      return {
+        ...opened,
+        closed: essay.hidden && !document.getElementById('body').inert,
+        sameViews: queryViews.every((view, i) => app.queries()[i]?.view === view),
+      };
+    })()
+  `);
+
   // The custom-pane flow, as clicks: fork a built-in, edit it, apply, break it, close it.
   const custom = await cdp.eval(`
     (async () => {
@@ -638,6 +673,7 @@ try {
     `  ${report.rows} rows · wasm heap ${fmtMB(report.heapBefore)} → ${fmtMB(report.heapAfter)}\n` +
       `  write→visible p50 ${report.writeVisibleP50.toFixed(2)} ms\n` +
       `  differential ${report.checks} checks, ${report.mismatches} mismatches\n` +
+      `  walkthrough: ${walkthrough.steps} paired code/prose sections, same live query objects on return\n` +
       `  custom pane: forked, edited, broke, closed — ${JSON.stringify(custom.rowsText)}\n` +
       `  multi-select: brushed ${gestures.brushed} of ${gestures.expected}, dragged as a group, ` +
       `shift-click ${gestures.added}→${gestures.removed}, space-pan kept ${gestures.selAfterPan}, ` +
@@ -661,6 +697,16 @@ try {
   if (!/orderBy\("z", "asc"\)/.test(report.canvasQ)) {
     fail(`the canvas is not showing its own query: ${JSON.stringify(report.canvasQ)}`);
   }
+  if (!walkthrough.visible || !walkthrough.mode || !walkthrough.closed) {
+    fail(`the walkthrough did not open and close cleanly: ${JSON.stringify(walkthrough)}`);
+  }
+  if (walkthrough.steps !== 6 || !walkthrough.paired) {
+    fail(`the walkthrough is not six paired code/prose sections: ${JSON.stringify(walkthrough)}`);
+  }
+  if (!walkthrough.highlighted) fail("the walkthrough source was not syntax highlighted");
+  if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
+  if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
+  if (!walkthrough.sameViews) fail("opening the walkthrough replaced a maintained query view");
   if (!/groupBy\("color"\)/.test(custom.forkedCode ?? "")) {
     fail(`the fork did not seed the tally's code: ${JSON.stringify(custom.forkedCode)}`);
   }

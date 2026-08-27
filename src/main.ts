@@ -31,6 +31,50 @@ $("boot").hidden = true;
 $("app").hidden = false;
 
 // ---------------------------------------------------------------------------------------------
+// Canvas / walkthrough — two readings of the same program
+// ---------------------------------------------------------------------------------------------
+
+let walkthroughOpen = false;
+const walkthrough = $("walkthrough");
+const body = $("body");
+const foot = $("foot");
+const viewTabs = [...document.querySelectorAll<HTMLButtonElement>(".viewtab")];
+
+// The essay's snippets use the same small tokenizer as the live query panels. It is deliberately
+// done from their text content: the HTML stays readable source, and the highlighter remains the
+// single owner of token colours everywhere code appears on the page.
+for (const source of document.querySelectorAll<HTMLElement>(".walk-source")) {
+  source.innerHTML = highlightQuery(source.textContent ?? "");
+}
+
+function showView(view: "canvas" | "walkthrough", updateLocation = true): void {
+  walkthroughOpen = view === "walkthrough";
+  walkthrough.hidden = !walkthroughOpen;
+  body.inert = walkthroughOpen;
+  foot.inert = walkthroughOpen;
+  $("app").classList.toggle("walk-mode", walkthroughOpen);
+  for (const tab of viewTabs) {
+    const on = tab.dataset.view === view;
+    tab.classList.toggle("on", on);
+    tab.setAttribute("aria-pressed", String(on));
+  }
+  if (walkthroughOpen) {
+    walkthrough.scrollTop = 0;
+    walkthrough.focus({ preventScroll: true });
+  }
+  if (updateLocation) {
+    const next = walkthroughOpen ? "#walkthrough" : `${location.pathname}${location.search}`;
+    history.replaceState(null, "", next);
+  }
+}
+
+for (const tab of viewTabs) {
+  tab.addEventListener("click", () => showView(tab.dataset.view === "walkthrough" ? "walkthrough" : "canvas"));
+}
+$("walk-open-demo").addEventListener("click", () => showView("canvas"));
+showView(location.hash === "#walkthrough" ? "walkthrough" : "canvas", false);
+
+// ---------------------------------------------------------------------------------------------
 // Canvas + gestures
 // ---------------------------------------------------------------------------------------------
 
@@ -232,6 +276,13 @@ document.addEventListener("keydown", (e) => {
   // Typing in a custom pane's editor is not a canvas gesture — a stray Backspace must not
   // delete the selected shape.
   if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
+  // The essay sits over a still-live canvas, but its keyboard belongs to the reader. Escape is
+  // the one useful exception: it returns to the interactive view without letting the same key
+  // clear the canvas selection underneath.
+  if (walkthroughOpen) {
+    if (e.key === "Escape") showView("canvas");
+    return;
+  }
   const k = e.key.toLowerCase();
   const cmd = e.metaKey || e.ctrlKey;
 

@@ -1,0 +1,3 @@
+minimumReleaseAgeExclude:
+  - '@rindle/client@0.10.2'
+  - '@rindle/wasm@0.10.2'

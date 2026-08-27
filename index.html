@@ -19,6 +19,10 @@
                and from a bare `vite dev` on :5173, where a site-relative path 404s. -->
           <a href="https://rindle.sh/demo">zero</a> paint demo
         </div>
+        <nav id="viewtabs" aria-label="Demo views">
+          <button class="viewtab on" data-view="canvas" aria-controls="body" aria-pressed="true">canvas</button>
+          <button class="viewtab" data-view="walkthrough" aria-controls="walkthrough" aria-pressed="false">walkthrough</button>
+        </nav>
         <div class="sub">
           the canvas, the palette, the leaderboard, the feed — each is a live query over an
           in-tab wasm database, kept fresh by folding deltas
@@ -29,7 +33,7 @@
           <span class="chip" id="hud-wv">write→visible —</span>
           <span class="chip" id="hud-rows">0 shapes</span>
           <span class="chip" id="hud-cells" title="the canvas is one live query per visible cell; panning subscribes and drops them at the edges">0 cells</span>
-          <span class="chip"><span id="hud-fps">— fps</span><canvas id="spark" width="120" height="22"></canvas></span>
+          <span class="chip" id="hud-frame"><span id="hud-fps">— fps</span><canvas id="spark" width="120" height="22"></canvas></span>
         </div>
       </header>
 
@@ -64,6 +68,210 @@
           <!-- panels are appended here -->
         </aside>
       </div>
+
+      <section id="walkthrough" aria-labelledby="walk-title" tabindex="-1" hidden>
+        <div class="walk-shell">
+          <header class="walk-hero">
+            <div class="walk-hero-mark" aria-hidden="true">f</div>
+            <div class="walk-hero-copy">
+              <p class="walk-eyebrow">The frontend model</p>
+              <h1 id="walk-title">UI = F(state)</h1>
+              <p class="walk-lede">
+                A component declares the data it needs as a query. That query stays alive. Every
+                write updates its result before the next frame. No cache invalidation, refetch
+                choreography, or hand-written synchronization.
+              </p>
+              <div class="walk-invariant" aria-label="The data flow">
+                <span><b>01</b> query once</span><i aria-hidden="true">→</i>
+                <span><b>02</b> write state</span><i aria-hidden="true">→</i>
+                <span><b>03</b> every view is current</span>
+              </div>
+            </div>
+          </header>
+
+          <div class="walk-rule">
+            <span>Read the program</span>
+            <span>code on the left · model on the right</span>
+          </div>
+
+          <article class="literate">
+            <section class="walk-step" id="walk-declare">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>01 · query</span><span>recent writes</span></div>
+                <pre class="walk-source">const recent = q.shape
+  .where(exists(onLayer,
+    (l) => l.where.visible(1)))
+  .orderBy("updated", "desc")
+  .limit(8)
+  .materialize();</pre>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">01 / Declare the view</p>
+                <h2>The query is the component’s data contract.</h2>
+                <p>
+                  “Recent writes” does not fetch eight rows and leave you holding a snapshot. It
+                  creates a maintained view: the newest eight visible shapes, in order, for as
+                  long as the component needs it.
+                </p>
+                <p>
+                  The declaration says everything. There is no second path for inserts, edits,
+                  deletes, visibility changes, or reordered rows.
+                </p>
+                <aside class="walk-note"><b>On the canvas</b> The “recent writes” panel is bound to this exact query.</aside>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-render">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>02 · read</span><span>component</span></div>
+                <pre class="walk-source">function RecentWrites() {
+  return recent.data.map((shape) =>
+    row(shape.id, shape.kind, shape.updated)
+  );
+}</pre>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">02 / Render current state</p>
+                <h2>The UI is just a function of the view.</h2>
+                <p>
+                  The component reads the query’s current rows. The binding schedules a render
+                  when that view folds a delta; application code does not work out what changed
+                  or patch the collection by hand.
+                </p>
+                <p>
+                  Loading the initial result and maintaining it are the same abstraction. Once
+                  materialized, <code>recent.data</code> is the answer now.
+                </p>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-write">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>03 · write</span><span>one shape</span></div>
+                <pre class="walk-source">await store.write((tx) => {
+  tx.edit("shape", next, previous);
+});
+
+// recent.data is current here
+// largest.data is current here
+// palette.data is current here
+// canvas cells are current here</pre>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">03 / Change state once</p>
+                <h2>A write is the only update path.</h2>
+                <p>
+                  Dragging a shape writes a row. Inside that same call, the engine derives the
+                  consequences and folds them into every affected view. When the promise resolves,
+                  the next paint already has the right data.
+                </p>
+                <p>
+                  The write does not know which components exist. The components do not know why
+                  the row changed. That missing coordination code is the point.
+                </p>
+                <aside class="walk-note"><b>Try it</b> Drag a shape and watch the query panels pulse together.</aside>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-fanout">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>04 · derive</span><span>four views</span></div>
+                <pre class="walk-source">const palette = q.shape
+  .groupBy("color").count();
+
+const largest = q.shape
+  .orderBy("area", "desc").limit(6);
+
+const recent = q.shape
+  .orderBy("updated", "desc").limit(8);
+
+const cell = q.shape
+  .where.c1(cellId).orderBy("z", "asc");</pre>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">04 / Let queries do the bookkeeping</p>
+                <h2>One row can have many derived consequences.</h2>
+                <p>
+                  Recoloring moves a count between palette groups. Resizing can reseat the
+                  leaderboard. Any edit moves the shape to the top of the feed. Dragging across a
+                  cell boundary removes it from one canvas query and inserts it into its neighbor.
+                </p>
+                <p>
+                  These are not four update handlers. They are four declarations, each maintained
+                  from the same write stream and charged only for the delta that touched it.
+                </p>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-relationships">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>05 · relate</span><span>layer visibility</span></div>
+                <pre class="walk-source">const visible = exists(onLayer,
+  (layer) => layer.where.visible(1)
+);
+
+const painted = q.shape
+  .where(visible)
+  .orderBy("z", "asc");
+
+await store.write((tx) => {
+  tx.edit("layer", hidden, visibleLayer);
+});</pre>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">05 / Model relationships, not effects</p>
+                <h2>A tiny write can have a large, exact fan-out.</h2>
+                <p>
+                  Visibility lives on one layer row. Painted queries reach it through a
+                  relationship. Hide the layer and one row changes; every dependent query sheds
+                  precisely the shapes that no longer qualify.
+                </p>
+                <p>
+                  You do not walk the shapes, clear caches, or notify panels. The join already
+                  describes the consequence.
+                </p>
+                <aside class="walk-note"><b>On the canvas</b> Click an eye in “layers” to make one write fan out across thousands of rows.</aside>
+              </div>
+            </section>
+
+            <section class="walk-step" id="walk-data">
+              <div class="walk-code">
+                <div class="walk-code-head"><span>06 · keep identity</span><span>selection</span></div>
+                <pre class="walk-source">const selected = q.shape
+  .where(exists(onSelection))
+  .orderBy("z", "asc")
+  .materialize();
+
+// Selecting changes data, not the query.
+await store.write((tx) => {
+  tx.add("selection", { shape: id });
+});</pre>
+              </div>
+              <div class="walk-copy">
+                <p class="walk-step-no">06 / Change data, not query identity</p>
+                <h2>Even ephemeral UI state can be declarative.</h2>
+                <p>
+                  The selected ids live in a table. The selection query is registered once and
+                  never changes. Brushing a marquee writes only the rows crossing its edge, and
+                  the fixed query folds those deltas.
+                </p>
+                <p>
+                  Put ids into query arguments instead and every pointer move creates a different
+                  query that must hydrate again. The useful question is simple: did the question
+                  change, or did the data change?
+                </p>
+              </div>
+            </section>
+          </article>
+
+          <footer class="walk-end">
+            <p class="walk-eyebrow">That is the whole loop</p>
+            <h2>Declare what each component sees. Write what happened.</h2>
+            <p>The engine keeps the two connected. The canvas makes that connection visible.</p>
+            <button id="walk-open-demo" class="walk-cta">open the canvas <span aria-hidden="true">→</span></button>
+          </footer>
+        </div>
+      </section>
 
       <footer id="foot">
         <span id="difftotal"></span>
