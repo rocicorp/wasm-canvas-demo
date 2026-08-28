@@ -30,7 +30,7 @@ import {
   type QueryDef,
   type ResultRow,
 } from "./queries.ts";
-import { confetti, initialScene } from "./scene.ts";
+import { confetti, confettiArea, initialScene } from "./scene.ts";
 import { CONFETTI_WHO, LAYERS, YOU } from "./schema.ts";
 import { Writer, type Mut } from "./write.ts";
 
@@ -729,16 +729,24 @@ export class DrawApp {
    *  `onBatch` is told what each one carried (`rows` this batch, `done` of `total` so far), so
    *  the page can count a drop in while it lands.
    *
+   *  `area` is what the drop is AIMED at — the page passes the camera's viewport. Where it
+   *  actually scatters is {@link confettiArea} of that: unchanged when the viewport has enough
+   *  world-space area for this many specks, or widened about the same centre when it does not.
+   *  The area is computed HERE from the whole job's `n`, because a batch only knows its own share
+   *  and every batch has to land in the same rect. Omitted (the headless tests), `confetti` keeps
+   *  its deterministic default: the opening scene's extent.
+   *
    *  Returns the whole job's totals: engine time summed across the batches, rows committed, and
    *  how many commits it took. */
   async addConfetti(
     n: number,
-    area?: { x0: number; y0: number; x1: number; y1: number },
+    area?: Rect,
     onBatch?: (batch: { rows: number; done: number; total: number; ms: number }) => void,
   ): Promise<{ ms: number; rows: number; commits: number }> {
     let ms = 0;
     let done = 0;
     let commits = 0;
+    const scatter = area && confettiArea(area, n);
     while (done < n) {
       // Every batch after the first waits for a frame. The first does not: a press should put
       // shapes on screen on the frame you pressed it, the way it always has.
@@ -749,7 +757,7 @@ export class DrawApp {
         this.writer.idHighWater,
         this.writer.zHighWater + 1,
         this.writer.clockHighWater + 1,
-        area,
+        scatter,
       );
       // ONE history step per DROP, not per batch — ⌘Z undoes the press you made, not the last
       // sixteenth of it. The first batch opens a fresh step; the rest re-mark with the same tag
