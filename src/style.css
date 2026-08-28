@@ -732,22 +732,21 @@ body {
   margin-top: 28px;
 }
 .walk-pane-gallery .walk-pane-ref {
+  display: flex;
+  flex-direction: column;
   margin-top: 0;
 }
 .walk-pane-gallery .walk-pane-frame {
-  height: 184px;
+  flex: 1;
+  min-height: 184px;
 }
 .walk-pane-gallery .walk-pane-card {
-  height: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
-.walk-pane-gallery .code {
-  max-height: 48px;
-  overflow: hidden;
-}
+.walk-pane-gallery .code,
 .walk-pane-gallery .pbody {
-  max-height: 84px;
-  overflow: hidden;
+  max-height: none;
+  overflow: visible;
 }
 .walk-pane-gallery .note,
 .walk-pane-gallery .delta {
@@ -964,7 +963,7 @@ body {
   }
   .walk-pane-gallery .walk-pane-frame {
     height: auto;
-    max-height: 220px;
+    max-height: none;
   }
 }
 

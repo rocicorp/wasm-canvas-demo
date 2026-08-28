@@ -330,6 +330,26 @@ try {
           [...document.querySelectorAll('[data-walk-pane="recent"] .pbody')].every(
             (body) => body.textContent === document.querySelector('#panel-recent .pbody')?.textContent
           ),
+        fanoutCardSizes: [...document.querySelectorAll('#walk-fanout .walk-pane-frame')].map((frame) => {
+          const card = frame.querySelector('.walk-pane-card');
+          const frameBox = frame.getBoundingClientRect();
+          return {
+            name: frame.dataset.walkPane,
+            frameHeight: frame.clientHeight,
+            contentHeight: card?.scrollHeight ?? 0,
+            frameWidth: frame.clientWidth,
+            contentWidth: card?.scrollWidth ?? 0,
+            overflowing: [...(card?.querySelectorAll('*') ?? [])]
+              .filter((el) => {
+                const box = el.getBoundingClientRect();
+                return box.width > 0 && box.height > 0 && (box.left < frameBox.left - 1 || box.right > frameBox.right + 1);
+              })
+              .map((el) =>
+                el.tagName.toLowerCase() + '.' + el.className + ':' +
+                Math.ceil(el.getBoundingClientRect().right - frameBox.right)
+              ),
+          };
+        }),
         queryCountHeld: app.queries().length === queryViews.length,
         prominentViewSwitch:
           viewSwitch.height >= 34 &&
@@ -1023,6 +1043,13 @@ try {
   if (!walkthrough.defaultWalkthrough) fail("an unqualified URL did not open the walkthrough by default");
   if (!walkthrough.permalinks) fail("the walkthrough source links do not target the latest main revision");
   if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");
+  if (
+    !walkthrough.fanoutCardSizes.every(
+      (card) => card.contentHeight <= card.frameHeight + 1 && card.overflowing.length === 0
+    )
+  ) {
+    fail(`the Step 04 live cards clip their query or result content: ${JSON.stringify(walkthrough.fanoutCardSizes)}`);
+  }
   if (
     !walkthrough.editor?.present ||
     !walkthrough.editor.sharedCanvas ||
