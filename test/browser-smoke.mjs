@@ -216,6 +216,12 @@ try {
       recentCard?.click();
       await new Promise((r) => requestAnimationFrame(r));
       const cardOpenedCanvas = essay.hidden && !document.getElementById('app').classList.contains('walk-mode');
+      const focusedCanvasPane = document.activeElement?.id === 'panel-recent';
+      const highlightedCanvasPane = document.getElementById('panel-recent')?.classList.contains('walk-focus') ?? false;
+      await new Promise((r) => setTimeout(r, 500));
+      const railRect = document.getElementById('rail').getBoundingClientRect();
+      const paneRect = document.getElementById('panel-recent').getBoundingClientRect();
+      const canvasPaneInView = paneRect.top >= railRect.top && paneRect.bottom <= railRect.bottom;
       history.back();
       await new Promise((r) => setTimeout(r, 50));
       const scrollAfterBack = essay.scrollTop;
@@ -226,6 +232,9 @@ try {
         ...opened,
         cardA11y,
         cardOpenedCanvas,
+        focusedCanvasPane,
+        highlightedCanvasPane,
+        canvasPaneInView,
         returnedByBack,
         closed: essay.hidden && !document.getElementById('body').inert,
         sameViews:
@@ -781,6 +790,9 @@ try {
   }
   if (!walkthrough.cardOpenedCanvas || !walkthrough.returnedByBack) {
     fail(`the walkthrough card did not return through browser Back with its scroll position: ${JSON.stringify(walkthrough)}`);
+  }
+  if (!walkthrough.focusedCanvasPane || !walkthrough.highlightedCanvasPane || !walkthrough.canvasPaneInView) {
+    fail(`the clicked walkthrough pane was not focused, highlighted, and visible in the canvas rail: ${JSON.stringify(walkthrough)}`);
   }
   if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
   if (!walkthrough.permalinks) fail("the walkthrough source links are not immutable GitHub line anchors");
