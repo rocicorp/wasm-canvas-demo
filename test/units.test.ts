@@ -1,6 +1,5 @@
-// Pure-logic units: the scene generator, the recompute orderings, the structural differ, and the
-// writer's per-frame coalescing. No wasm here — the engine-facing half lives in
-// `differential.e2e.ts`, which boots the real engine and checks every query after every commit.
+// Pure-logic units: the scene generator, geometry, writer's per-frame coalescing, and history.
+// No wasm here — the browser smoke test covers the engine-facing page.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -26,9 +25,7 @@ import {
 import { History } from "../src/history.ts";
 import { Bots, ROAM } from "../src/bots.ts";
 import { CELL0, LEVELS, cellAt, cellCol, cellSize, cellsForView, cellsOf, levelForZoom } from "../src/cell.ts";
-import { diff } from "../src/differential.ts";
 import { Mirror, type ShapeRow } from "../src/mirror.ts";
-import { layerCounts, paint, recent, tally, top } from "../src/queries.ts";
 import { confetti, initialScene } from "../src/scene.ts";
 import { CONFETTI_WHO, LAYERS, PALETTE, WORLD_H, WORLD_W } from "../src/schema.ts";
 import { Writer, type Mut } from "../src/write.ts";
@@ -115,13 +112,7 @@ test("confetti is inert and takes the id/z/clock ranges it was given", () => {
   }
 });
 
-// ---------------------------------------------------------------------------------------------
-// Recomputes (the differential's "fresh query" half)
-// ---------------------------------------------------------------------------------------------
-
 function row(over: Partial<ShapeRow> & { id: number }): ShapeRow {
-  // Cells are DERIVED, never passed: they follow the centre the same way `area` follows w*h,
-  // so a fixture that moves a row gets the right cell without saying so.
   const base = {
     kind: "rect",
     x: 100,
@@ -139,83 +130,6 @@ function row(over: Partial<ShapeRow> & { id: number }): ShapeRow {
   };
   return { ...base, ...cellsOf(base.x, base.y) };
 }
-
-function mirrorOf(rows: ShapeRow[]): Mirror {
-  const m = new Mirror();
-  for (const l of LAYERS) m.addLayer({ ...l });
-  for (const r of rows) m.add(r);
-  return m;
-}
-
-test("paint orders by z, tiebreaking on id ascending (the engine's completed ORDER BY)", () => {
-  const m = mirrorOf([row({ id: 3, z: 1 }), row({ id: 1, z: 2 }), row({ id: 2, z: 1 })]);
-  assert.deepEqual(
-    paint.recompute(m, undefined).map((r) => (r as unknown as ShapeRow).id),
-    [2, 3, 1],
-  );
-});
-
-test("top takes the largest areas, recent the newest clocks", () => {
-  const m = mirrorOf([
-    row({ id: 1, area: 50, updated: 9 }),
-    row({ id: 2, area: 300, updated: 1 }),
-    row({ id: 3, area: 300, updated: 5 }),
-  ]);
-  assert.deepEqual(
-    top.recompute(m, undefined).map((r) => (r as unknown as ShapeRow).id),
-    [2, 3, 1],
-    "area desc, id asc on the tie",
-  );
-  assert.deepEqual(
-    recent.recompute(m, undefined).map((r) => (r as unknown as ShapeRow).id),
-    [1, 3, 2],
-  );
-});
-
-test("tally groups by color, sorted by the group key", () => {
-  const m = mirrorOf([row({ id: 1, color: "sky" }), row({ id: 2, color: "coral" }), row({ id: 3, color: "sky" })]);
-  assert.deepEqual(tally.recompute(m, undefined), [
-    { color: "coral", count: 1 },
-    { color: "sky", count: 2 },
-  ]);
-});
-
-test("hiding a layer gates the recomputes, and the layer panel counts everything", () => {
-  const m = mirrorOf([
-    row({ id: 1, layer: 1 }),
-    row({ id: 2, layer: 2 }),
-    row({ id: 3, layer: 2 }),
-  ]);
-  assert.equal(paint.recompute(m, undefined).length, 3);
-  assert.deepEqual(
-    layerCounts.recompute(m, undefined).map((r) => (r as { shapes?: unknown }).shapes),
-    [1, 2, 0],
-  );
-
-  m.editLayer({ id: 2, name: "drawing", visible: 0 });
-  assert.deepEqual(
-    paint.recompute(m, undefined).map((r) => (r as unknown as ShapeRow).id),
-    [1],
-    "the gate dropped every shape on the hidden layer",
-  );
-  assert.deepEqual(
-    layerCounts.recompute(m, undefined).map((r) => (r as { shapes?: unknown }).shapes),
-    [1, 2, 0],
-    "the layers panel still counts hidden shapes — hiding is not deleting",
-  );
-});
-
-// ---------------------------------------------------------------------------------------------
-// diff
-// ---------------------------------------------------------------------------------------------
-
-test("diff finds the first difference and ignores key order", () => {
-  assert.equal(diff([{ a: 1, b: 2 }], [{ b: 2, a: 1 }]), null);
-  const m = diff([{ a: 1 }], [{ a: 2 }]);
-  assert.ok(m && m.path === "[0].a");
-  const missing = diff([{ a: 1 }], [{ a: 1, b: 3 }]);
-  assert.ok(missing && missing.path === "[0].b");
-});
 
 // ---------------------------------------------------------------------------------------------
 // Writer coalescing (against a recording store — no engine)

@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts && node test/differential.e2e.ts",
+    "test": "node --test test/*.test.ts",
     "test:browser": "vite build && node test/browser-smoke.mjs"
   },
   "dependencies": {

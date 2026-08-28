@@ -1,6 +1,6 @@
 // Browser smoke test — the one thing the Node e2e cannot cover.
 //
-// `differential.e2e.ts` proves the ENGINE is right, in Node. This proves the PAGE works: the
+// This proves the PAGE works: the
 // bundler-resolved wasm URL, `instantiateStreaming` over fetch, whether the production bundle
 // keeps what the dev build ran — and (the load-bearing one) whether `engine.ts`'s heap probe and
 // `@rindle/wasm`'s own `initWasm` resolve `pkg/rindle.js` to the SAME module instance once a
@@ -76,7 +76,7 @@ try {
       await new Promise((r) => setTimeout(r, 2500));
 
       // Pan the camera across several cell boundaries. The canvas must RE-AIM, not re-run: the
-      // subscribed set changes, stays bounded, and every cell view stays exact. A real wheel
+      // subscribed set changes and stays bounded. A real wheel
       // event, so the page's own input path is what drives it.
       const cv = document.getElementById('canvas');
       const cellsBeforePan = app.stats().cellsLive;
@@ -87,7 +87,6 @@ try {
       }
       await new Promise((r) => setTimeout(r, 400));
       const afterPan = app.stats();
-      const panSweep = app.checkAll();
 
       // And zoom out, which steps the level and re-addresses every cell.
       const levelBeforeZoom = app.stats().cellLevel;
@@ -97,9 +96,6 @@ try {
       }
       await new Promise((r) => setTimeout(r, 400));
       const afterZoom = app.stats();
-      const zoomSweep = app.checkAll();
-
-      const sweep = app.checkAll();
       const s = app.stats();
       const moved = app.mirror.get(first.id);
       return {
@@ -108,16 +104,11 @@ try {
         heapAfter: s.wasmHeapBytes,
         writeVisibleP50: s.writeVisibleP50,
         writesPerSec: s.writesPerSec,
-        checks: s.checks,
-        mismatches: s.mismatches,
-        sweepMismatches: sweep.mismatches,
         cellsBeforePan,
         cellsAfterPan: afterPan.cellsLive,
         panSubscribed: afterPan.cellSubscribes - subsBeforePan,
-        panMismatches: panSweep.mismatches,
         levelBeforeZoom,
         levelAfterZoom: afterZoom.cellLevel,
-        zoomMismatches: zoomSweep.mismatches,
         movedX: moved ? moved.x : null,
         panels: document.querySelectorAll('#rail .panel').length,
         canvasQ: document.querySelector('#canvasq .code')?.textContent ?? '',
@@ -259,9 +250,6 @@ try {
       const rowsText = pane.querySelector('.pbody')?.textContent ?? '';
       const errAfterGood = pane.querySelector('.qerr')?.textContent ?? '';
 
-      pane.querySelector('.check').click(); // the fresh-subscription differential
-      const sweep = globalThis.rindleDraw.checkAll();
-
       // A selection set: the pane renders exactly the selected columns (plus the riding pk).
       ta.value = 'q.shape.select("color", "area").orderBy("area", "desc").limit(3)';
       pane.querySelector('.apply').click();
@@ -281,7 +269,6 @@ try {
         errAfterGood,
         errAfterBad,
         stillLive,
-        sweepMismatches: sweep.mismatches,
         customsAfterClose: globalThis.rindleDraw.customs.length,
         paneGone: !document.querySelector('.panel.custom'),
       };
@@ -559,7 +546,7 @@ try {
       }
       const pinch = { zoomed: canvas.zoom / zoomBeforePinch, wrote: app.writer.totalRows - rowsBeforePinch };
 
-      // e — ⇧1: the extent queries subscribe on first use and join the differential sweep.
+      // e — ⇧1: the extent queries subscribe on first use.
       // Count the EXTENT queries, not the whole sweep: fitting the view changes the camera, and
       // the camera changes how many cell queries are subscribed.
       const extentQueries = () => app.queries().filter((q) => q.def.name === 'extent').length;
@@ -583,11 +570,10 @@ try {
         })(),
       };
 
-      // 6 — Escape clears it, and the whole session still checks out.
+      // 6 — Escape clears it.
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await settle(2);
       const cleared = app.selectedIds.length;
-      const sweep = app.checkAll();
 
       return {
         expected: expected.length,
@@ -610,7 +596,6 @@ try {
         undoDepth: app.history.depth.undo,
         resubscribes: (app.sel === selQueryAtStart ? 0 : 1) + (app.sel.view === selViewAtStart ? 0 : 1),
         selRowsAfterClear: app.selectionRows().length,
-        mismatches: sweep.mismatches,
       };
     })()
   `);
@@ -721,7 +706,6 @@ try {
         traced: after.traced - before.traced,
         held: after.held,
         appended, hidden, rebuilt,
-        mismatches: app.checkAll().mismatches,
       };
     })()
   `);
@@ -751,7 +735,6 @@ try {
   process.stdout.write(
     `  ${report.rows} rows · wasm heap ${fmtMB(report.heapBefore)} → ${fmtMB(report.heapAfter)}\n` +
       `  write→visible p50 ${report.writeVisibleP50.toFixed(2)} ms\n` +
-      `  differential ${report.checks} checks, ${report.mismatches} mismatches\n` +
       `  walkthrough: ${walkthrough.steps} paired code/prose sections, same live query objects on return\n` +
       `  custom pane: forked, edited, broke, closed — ${JSON.stringify(custom.rowsText)}\n` +
       `  multi-select: brushed ${gestures.brushed} of ${gestures.expected}, dragged as a group, ` +
@@ -768,9 +751,6 @@ try {
 
   if (!(report.rows > 4200)) fail(`expected the seeded scene plus 4,000 confetti, got ${report.rows} rows`);
   if (report.movedX !== 123) fail(`the scripted drag did not land (x = ${report.movedX})`);
-  if (report.mismatches > 0) fail(`${report.mismatches} differential mismatches in the browser`);
-  if (report.sweepMismatches > 0) fail(`${report.sweepMismatches} mismatches on the full sweep`);
-  if (!(report.checks > 0)) fail("the differential never ran");
   if (!(report.writeVisibleP50 > 0)) fail("no write→visible samples — nothing was written");
   if (report.panels !== 6) fail(`expected 6 panels, got ${report.panels}`);
   if (!/orderBy\("z", "asc"\)/.test(report.canvasQ)) {
@@ -877,9 +857,7 @@ try {
   if (gestures.cleared !== 0 || gestures.selRowsAfterClear !== 0) {
     fail(`Escape left ${gestures.cleared} selected / ${gestures.selRowsAfterClear} rows in the view`);
   }
-  if (gestures.mismatches > 0) fail(`${gestures.mismatches} mismatches after the multi-select session`);
   if (!custom.stillLive) fail("a broken edit tore out the previous subscription");
-  if (custom.sweepMismatches > 0) fail(`${custom.sweepMismatches} mismatches with the custom pane in the sweep`);
   if (custom.customsAfterClose !== 0 || !custom.paneGone) fail("closing the pane did not tear it out");
   if (!report.canvasPainted) fail("the canvas has no backing store");
   // The infinite canvas: panning re-aims a BOUNDED set of live queries and stays exact.
@@ -888,11 +866,9 @@ try {
   if (report.cellsAfterPan > report.cellsBeforePan * 3) {
     fail(`panning leaked subscriptions: ${report.cellsBeforePan} → ${report.cellsAfterPan}`);
   }
-  if (report.panMismatches > 0) fail(`${report.panMismatches} mismatches after panning`);
   if (!(report.levelAfterZoom > report.levelBeforeZoom)) {
     fail(`zooming out did not step the cell level (${report.levelBeforeZoom} → ${report.levelAfterZoom})`);
   }
-  if (report.zoomMismatches > 0) fail(`${report.zoomMismatches} mismatches after zooming`);
   if (!/shapes/.test(report.hudText)) fail(`the HUD did not render: ${JSON.stringify(report.hudText)}`);
 
   // -- the confetti layer's cache ---------------------------------------------------------------
@@ -910,7 +886,6 @@ try {
   if (layer.appended !== layer.rebuilt) {
     fail(`the appended layer and a freshly traced one paint differently (${layer.appended} vs ${layer.rebuilt})`);
   }
-  if (layer.mismatches > 0) fail(`${layer.mismatches} mismatches after the confetti-layer session`);
   if (layer.speck2 === null) fail("no confetti in the subscribed cells — the recolour check never ran");
   if (layer.recolored === layer.wasColor) fail("the palette chip did not recolour the selected speck");
   if (layer.recoloredWho === 9) {

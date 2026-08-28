@@ -1,23 +1,17 @@
-// The demo, headless. No DOM anywhere in this file — `test/differential.e2e.ts` drives the whole
-// thing in Node, and the page is a renderer over it. A demo whose claims can only be checked by
-// looking at it is a screensaver.
+// The demo, headless. No DOM anywhere in this file — the page is a renderer over it.
 //
 // Every panel (the canvas included) reads its LIVE engine view. Writes land through
 // `Writer.commit`, the engine folds the delta into every affected view inside that same call,
 // and the next paint reads the updated arrays. Nothing re-runs, ever.
 //
-// The differential (`view-after-write == fresh-query`) runs on demand, never on a timer: every
-// panel's ✓ recomputes that query in front of you, "check all now" sweeps the whole set, and
-// the headless e2e checks every query after every commit. A from-scratch recompute is O(rows) —
-// the exact bill the engine exists to avoid — so the page never pays it on a schedule to
-// re-prove what the e2e already enforces.
+// The page never re-runs a query on a timer. Each view is materialized once and stays current by
+// folding the engine's deltas into its maintained array.
 
 import type { ArrayView, FlatChange, WireSchema } from "@rindle/client";
 
 import { Bots } from "./bots.ts";
 import { cellsForView, levelForZoom } from "./cell.ts";
 import { errText, makeCustomDef } from "./custom.ts";
-import { describeMismatch, diff } from "./differential.ts";
 import { boot, type Engine } from "./engine.ts";
 import { aabbOf, boundsOf, unionRect, type Rect } from "./geom.ts";
 import { History, type StepDelta } from "./history.ts";
@@ -57,8 +51,8 @@ let subscriptionEpoch = 0;
 export const CONFETTI_BATCH = 2000;
 
 /** Hand the frame back before committing the next batch. The page has a `requestAnimationFrame`
- *  and that is exactly the beat we want to land on; headless (the differential e2e) has none, and
- *  a macrotask is the same promise shape with the same serialization. */
+ *  and that is exactly the beat we want to land on; a macrotask is the same promise shape with
+ *  the same serialization. */
 function nextFrame(): Promise<void> {
   return new Promise<void>((resolve) => {
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
@@ -83,18 +77,13 @@ export class LiveQuery<A> {
   folds = 0;
   lastMovedAt = 0;
   lastDelta: string | null = null;
-  checks = 0;
-  mismatches = 0;
-  lastMismatch: string | null = null;
 
-  private readonly mirror: Mirror;
   private readonly root: Engine["store"];
   private detach: Array<() => void> = [];
 
-  constructor(store: Engine["store"], mirror: Mirror, def: QueryDef<A>, args: A) {
+  constructor(store: Engine["store"], def: QueryDef<A>, args: A) {
     this.def = def;
     this.args = args;
-    this.mirror = mirror;
     this.root = store;
     this.materialize();
   }
@@ -128,20 +117,6 @@ export class LiveQuery<A> {
     this.args = args;
     this.destroy();
     this.materialize();
-  }
-
-  /** This query's differential: recompute from scratch over the mirror, compare structurally. */
-  check(): { ok: boolean; ms: number } {
-    const t0 = performance.now();
-    const fresh = this.def.recompute(this.mirror, this.args);
-    const ms = performance.now() - t0;
-    const m = diff(this.view.data, fresh);
-    this.checks++;
-    if (m) {
-      this.mismatches++;
-      this.lastMismatch = describeMismatch(m);
-    }
-    return { ok: m === null, ms };
   }
 
   destroy(): void {
@@ -214,11 +189,8 @@ export class CellViews {
   readonly hydrate = new Samples(256);
 
   private readonly store: Engine["store"];
-  private readonly mirror: Mirror;
-
-  constructor(store: Engine["store"], mirror: Mirror) {
+  constructor(store: Engine["store"]) {
     this.store = store;
-    this.mirror = mirror;
   }
 
   /** Bring the subscription set in line with the camera. */
@@ -234,7 +206,7 @@ export class CellViews {
     for (const cell of want) {
       this.evictAt.delete(cell);
       if (this.views.has(cell)) continue;
-      const q = new LiveQuery(this.store, this.mirror, cellPaint, { cell, level });
+      const q = new LiveQuery(this.store, cellPaint, { cell, level });
       this.hydrate.add(q.hydrateMs);
       this.views.set(cell, q);
       this.subscribes++;
@@ -377,9 +349,6 @@ export interface AppStats {
   cellSubscribes: number;
   cellTeardowns: number;
   cellHydrateP50: number;
-  checks: number;
-  mismatches: number;
-  offenders: string[];
   /** Undo steps available in each direction, and the rows the stack is holding alive so redo
    *  can put them back — history's whole memory cost, said out loud. */
   undoDepth: number;
@@ -410,7 +379,7 @@ export class DrawApp {
 
   /** The canvas: one live query per visible cell, and nothing else. There is deliberately NO
    *  whole-drawing subscription — the global `paint` query survives only as a `QueryDef`, whose
-   *  `recompute` is the differential's independent oracle and runs on demand, never live. */
+   *  canvas itself is split into the cell subscriptions held in `cells`. */
   cells!: CellViews;
   tally!: LiveQuery<void>;
   layers!: LiveQuery<void>;
@@ -444,9 +413,6 @@ export class DrawApp {
    *  number. */
   readonly resubscribe = new Samples(256);
 
-  private diffChecks = 0;
-  private diffMismatches = 0;
-  private readonly offenders: string[] = [];
   private confettiSeed = 1;
 
   ready = false;
@@ -462,12 +428,12 @@ export class DrawApp {
     this.bots = new Bots(this.mirror);
 
     const store = this.engine.store;
-    this.cells = new CellViews(store, this.mirror);
-    this.tally = new LiveQuery(store, this.mirror, tally, undefined);
-    this.layers = new LiveQuery(store, this.mirror, layerCounts, undefined);
-    this.top = new LiveQuery(store, this.mirror, top, undefined);
-    this.recent = new LiveQuery(store, this.mirror, recent, undefined);
-    this.sel = new LiveQuery(store, this.mirror, selection, undefined);
+    this.cells = new CellViews(store);
+    this.tally = new LiveQuery(store, tally, undefined);
+    this.layers = new LiveQuery(store, layerCounts, undefined);
+    this.top = new LiveQuery(store, top, undefined);
+    this.recent = new LiveQuery(store, recent, undefined);
+    this.sel = new LiveQuery(store, selection, undefined);
     this.ready = true;
   }
 
@@ -479,7 +445,7 @@ export class DrawApp {
     this.cells.retarget(level, cellsForView(level, view.x0, view.y0, view.x1, view.y1), now);
   }
 
-  /** Every live query — the set `checkAll` sweeps. */
+  /** Every live query, including the cell subscriptions currently held by the canvas. */
   queries(): Array<LiveQuery<unknown>> {
     const list: Array<LiveQuery<unknown>> = [
       this.tally as LiveQuery<unknown>,
@@ -488,8 +454,6 @@ export class DrawApp {
       this.recent as LiveQuery<unknown>,
     ];
     list.push(this.sel as LiveQuery<unknown>);
-    // Every subscribed cell is a real query and gets checked like any other: "check all now"
-    // sweeps the canvas itself, cell by cell, against an independent recompute.
     for (const v of this.cells.views.values()) list.push(v as LiveQuery<unknown>);
     for (const q of this.extent ?? []) list.push(q as LiveQuery<unknown>);
     for (const c of this.customs) list.push(c.live as LiveQuery<unknown>);
@@ -506,7 +470,7 @@ export class DrawApp {
   /** Step back: commit the inverse delta and restore the selection the step began with.
    *
    *  Nothing here is undo-specific except the word. It is a commit like any other, so every view
-   *  folds it, the HUD times it, and the differential checks it with the oracles it already has.
+   *  folds it, and the HUD times it.
    *  The selection is restored to what it was — filtered to rows that still exist, because a
    *  later step may have deleted one and undo does not resurrect what it did not remove. */
   async undo(): Promise<AppliedStep | null> {
@@ -585,7 +549,7 @@ export class DrawApp {
           { col: "y", dir: "asc" },
           { col: "y", dir: "desc" },
         ] as ExtentArgs[]
-      ).map((args) => new LiveQuery(store, this.mirror, extent, args));
+      ).map((args) => new LiveQuery(store, extent, args));
     }
     let rect: Rect | null = null;
     let hydrateMs = 0;
@@ -631,9 +595,9 @@ export class DrawApp {
    *  the error text instead of throwing so callers keep the ok/error shape. */
   private subscribeCustom(id: number, code: string): LiveQuery<void> | string {
     try {
-      const def = makeCustomDef(`yours-${id}`, code, this.engine.store);
+      const def = makeCustomDef(`yours-${id}`, code);
       const t0 = performance.now();
-      const live = new LiveQuery(this.engine.store, this.mirror, def, undefined);
+      const live = new LiveQuery(this.engine.store, def, undefined);
       this.resubscribe.add(performance.now() - t0);
       return live;
     } catch (e) {
@@ -815,24 +779,6 @@ export class DrawApp {
     return { ms, rows: done, commits };
   }
 
-  /** Check EVERY live query. The e2e calls this after every commit; the page's "check all
-   *  now" button and the browser smoke call it on demand. */
-  checkAll(): { checks: number; mismatches: number } {
-    let checks = 0;
-    let mismatches = 0;
-    for (const q of this.queries()) {
-      const { ok } = q.check();
-      checks++;
-      this.diffChecks++;
-      if (!ok) {
-        mismatches++;
-        this.diffMismatches++;
-        this.remember(`${q.def.name}: ${q.lastMismatch ?? ""}`);
-      }
-    }
-    return { checks, mismatches };
-  }
-
   /** One transaction. `record` is whether it belongs to YOUR history — the robots' ticks and an
    *  undo's own inverse pass `false`. */
   commit(muts: Mut[], record = true): Promise<{ ms: number; rows: number } | null> {
@@ -858,9 +804,6 @@ export class DrawApp {
       cellSubscribes: this.cells.subscribes,
       cellTeardowns: this.cells.teardowns,
       cellHydrateP50: this.cells.hydrate.quantile(0.5),
-      checks: this.diffChecks,
-      mismatches: this.diffMismatches,
-      offenders: [...this.offenders],
       undoDepth: this.history.depth.undo,
       redoDepth: this.history.depth.redo,
       historyRows: this.history.rowsHeld,
@@ -871,9 +814,6 @@ export class DrawApp {
     for (const q of this.queries()) q.destroy();
   }
 
-  private remember(line: string): void {
-    if (this.offenders.length < 6) this.offenders.push(line);
-  }
 }
 
 // ---------------------------------------------------------------------------------------------
