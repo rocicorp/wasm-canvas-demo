@@ -137,10 +137,12 @@ const walkShapeEl = $<HTMLButtonElement>("walk-edit-shape");
 const walkShapeFill = walkShapeEl.querySelector<HTMLElement>(".walk-edit-fill")!;
 const walkShapeMeta = $<HTMLElement>("walk-shape-meta");
 const walkShapeSwatches = $<HTMLElement>("walk-shape-swatches");
+const walkRobotsPaused = $<HTMLElement>("walk-robots-paused");
 const WALK_SHAPE_PREFERRED_ID = 10;
 const WALK_SHAPE_MARGIN = 18;
 
 let walkShapeId = WALK_SHAPE_PREFERRED_ID;
+let walkShapeInView = false;
 let walkShapeOrigin: { id: number; x: number; y: number } | null = null;
 let walkShapePreview: { id: number; patch: SetPatch } | null = null;
 let walkShapeGesture:
@@ -154,6 +156,19 @@ let walkShapeGesture:
       row: ShapeRow;
     }
   | null = null;
+
+const robotTicksPausedForWalkthrough = (): boolean => walkthroughOpen && walkShapeInView;
+const paintWalkRobotPause = (): void => {
+  walkRobotsPaused.hidden = !(robotTicksPausedForWalkthrough() && app.bots.enabled);
+};
+
+new IntersectionObserver(
+  ([entry]) => {
+    walkShapeInView = entry.isIntersecting && entry.intersectionRatio >= 0.25;
+    paintWalkRobotPause();
+  },
+  { root: walkthrough, threshold: [0, 0.25] },
+).observe(walkShapeLab);
 
 walkShapeSwatches.innerHTML = PALETTE.map(
   ({ key, hex }) =>
@@ -204,6 +219,7 @@ function queueWalkShapePatch(patch: SetPatch): void {
 }
 
 function renderWalkShapeEditor(): void {
+  paintWalkRobotPause();
   if (!walkthroughOpen) return;
   let row = walkShapeReset ? resetWalkShapeEditor() : walkShapeRow();
   if (!row) {
@@ -1293,7 +1309,8 @@ function frame(now: number): void {
   // enqueue one last stale move while the visitor is holding it.
   const botExcludes =
     walkShapeGesture || walkShapePreview ? new Set([...(canvas.dragging ?? []), walkShapeId]) : canvas.dragging;
-  const botMuts = app.bots.enabled ? app.bots.tick(dt, now, botExcludes) : [];
+  const botMuts =
+    app.bots.enabled && !robotTicksPausedForWalkthrough() ? app.bots.tick(dt, now, botExcludes) : [];
   if (muts.length > 0) void app.commit(muts);
   // The robots' commit is NOT recorded: ⌘Z is for what your hand did, and a page where undo
   // stepped back through the ambient writers' drift would never reach your own last gesture.

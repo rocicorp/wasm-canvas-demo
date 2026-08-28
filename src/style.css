@@ -638,12 +638,42 @@ body {
   color: var(--walk-mint);
   font: inherit;
 }
-.walk-shape-lab-head span {
+.walk-shape-lab-state {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+.walk-shape-lab-state > span:first-child {
   overflow: hidden;
   color: var(--walk-copy);
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.walk-shape-lab-head .walk-robots-paused {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 184, 108, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 184, 108, 0.08);
+  color: #ffb86c;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.walk-shape-lab-head .walk-robots-paused[hidden] {
+  display: none;
+}
+.walk-robots-paused::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
 }
 .walk-shape-stage {
   position: relative;
@@ -956,7 +986,11 @@ body {
     flex-direction: column;
     gap: 5px;
   }
-  .walk-shape-lab-head span {
+  .walk-shape-lab-state {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .walk-shape-lab-state > span:first-child {
     max-width: 100%;
     text-align: left;
   }

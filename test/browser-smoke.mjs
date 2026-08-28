@@ -128,6 +128,7 @@ try {
     (async () => {
       const app = globalThis.rindleDraw;
       const queryViews = app.queries().map((q) => q.view);
+      await app.setBotRate(96);
       const canvasRect = document.getElementById('canvas').getBoundingClientRect();
       const defaultWalkthrough = location.hash === '' && !document.getElementById('walkthrough').hidden;
       document.querySelector('[data-view="walkthrough"]').click();
@@ -149,12 +150,27 @@ try {
       const paneThumbs = [...document.querySelectorAll('.walk-pane-frame')];
       const viewSwitch = document.getElementById('viewtabs').getBoundingClientRect();
       const activeViewTab = getComputedStyle(document.querySelector('.viewtab.on'));
-      essay.scrollTop = Math.min(720, essay.scrollHeight - essay.clientHeight);
-      const scrollBeforeCard = essay.scrollTop;
       const recentCard = document.querySelector('[data-walk-pane="recent"]');
       const cardA11y = recentCard
         ? { role: recentCard.getAttribute('role'), tabIndex: recentCard.tabIndex }
         : null;
+
+      const editorLab = document.getElementById('walk-shape-lab');
+      editorLab.scrollIntoView({ block: 'center' });
+      await new Promise((r) => setTimeout(r, 100));
+      const robotSnapshot = () => new Map(
+        [...app.mirror.all()]
+          .filter((row) => row.who >= 1 && row.who <= 3)
+          .map((row) => [row.id, { x: row.x, y: row.y }]),
+      );
+      const movedFrom = (before) => [...app.mirror.all()].filter((row) => {
+        const old = before.get(row.id);
+        return old && (old.x !== row.x || old.y !== row.y);
+      }).length;
+      const pausedBefore = robotSnapshot();
+      await new Promise((r) => setTimeout(r, 300));
+      const pausedMoved = movedFrom(pausedBefore);
+      const pausedBadgeVisible = !document.getElementById('walk-robots-paused').hidden;
 
       // Step 04 is an interactive proof, not a mock. Recolor and enlarge its real row through
       // the controls, then verify the already-materialized cards folded the same commit.
@@ -201,6 +217,22 @@ try {
         foldedCards: document.querySelectorAll('#walk-fanout .walk-pane-card.fold').length,
         queryCountHeld: app.queries().length === queryViews.length,
       };
+
+      essay.scrollTop = 0;
+      await new Promise((r) => setTimeout(r, 100));
+      const resumedBefore = robotSnapshot();
+      await new Promise((r) => setTimeout(r, 300));
+      const resumedMoved = movedFrom(resumedBefore);
+      const robotPause = {
+        pausedMoved,
+        resumedMoved,
+        badgeVisible: pausedBadgeVisible,
+        badgeHiddenAfter: document.getElementById('walk-robots-paused').hidden,
+        rateHeld: app.bots.enabled && app.bots.perSec === 96,
+      };
+      await app.setBotRate(0);
+      essay.scrollTop = Math.min(720, essay.scrollHeight - essay.clientHeight);
+      const scrollBeforeCard = essay.scrollTop;
       const opened = {
         visible: !essay.hidden,
         mode: document.getElementById('app').classList.contains('walk-mode'),
@@ -280,6 +312,7 @@ try {
       return {
         ...opened,
         editor,
+        robotPause,
         cardA11y,
         cardOpenedCanvas,
         focusedCanvasPane,
@@ -945,6 +978,15 @@ try {
     fail(`the Step 04 panels did not fold the edited row together: ${JSON.stringify(walkthrough.editor)}`);
   }
   if (!walkthrough.editor.queryCountHeld) fail("the walkthrough shape editor registered a new query");
+  if (
+    walkthrough.robotPause.pausedMoved !== 0 ||
+    walkthrough.robotPause.resumedMoved === 0 ||
+    !walkthrough.robotPause.badgeVisible ||
+    !walkthrough.robotPause.badgeHiddenAfter ||
+    !walkthrough.robotPause.rateHeld
+  ) {
+    fail(`robots did not pause and resume around Step 04: ${JSON.stringify(walkthrough.robotPause)}`);
+  }
   if (!walkthrough.queryCountHeld) fail("opening the walkthrough registered duplicate queries for its live cards");
   if (!walkthrough.prominentViewSwitch) fail("the canvas/walkthrough switch lost its prominent segmented styling");
   if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
