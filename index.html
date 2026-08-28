@@ -53,9 +53,6 @@
           <div id="canvasq" class="floating qfloat">
             <div class="qhead">
               <span>canvas</span>
-              <span class="ph-right">
-                <button class="check" title="recompute the canvas's query from scratch in plain JS and compare">✓</button>
-              </span>
             </div>
             <pre class="code"></pre>
             <div class="delta"></div>
@@ -327,8 +324,6 @@ await store.write((tx) => {
       </section>
 
       <footer id="foot">
-        <span id="difftotal"></span>
-        <button id="checkall" class="ghost" title="recompute every query from scratch and compare against the folded views">check all now</button>
         <span class="spacer"></span>
         <span id="memline" class="dim"></span>
       </footer>

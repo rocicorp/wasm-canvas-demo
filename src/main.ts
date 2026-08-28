@@ -6,8 +6,7 @@
 //   2. aim: re-subscribe the cells the camera brought into view, drop the ones it left.
 //   3. paint the canvas from the subscribed cells' CURRENT rows, panels from theirs.
 //
-// Everything the page displays comes out of `DrawApp` (no DOM in it), so the numbers on screen
-// are the numbers `test/differential.e2e.ts` asserts on headlessly.
+// Everything the page displays comes out of `DrawApp` (no DOM in it).
 
 import wasmUrl from "rindle-wasm-bin?url";
 
@@ -494,8 +493,7 @@ let walkFocusedPanel: HTMLElement | undefined;
 function panelMarkup(title: string, note?: string): string {
   return (
     `<header><h2>${title}</h2><span class="ph-right"><span class="hyd"></span>` +
-    `<button class="fork" title="fork — copy this query into a pane you can edit">fork</button>` +
-    `<button class="check" title="recompute this query from scratch in plain JS and compare">✓</button></span></header>` +
+    `<button class="fork" title="fork — copy this query into a pane you can edit">fork</button></span></header>` +
     `<pre class="code"></pre>` +
     `<div class="pbody"></div>` +
     (note ? `<p class="note">${note}</p>` : "") +
@@ -528,7 +526,6 @@ function panel(
     renderedCode: "",
     render,
   };
-  wireCheck(el, q);
   el.querySelector(".fork")!.addEventListener("click", () => {
     const live = q();
     if (!live) {
@@ -557,23 +554,6 @@ function focusCanvasPanel(id: string): void {
     walkFocusedPanel = undefined;
     walkFocusTimer = undefined;
   }, 900);
-}
-
-/** The ✓: this pane's differential, in front of you. The phrasing names which fresh half ran —
- *  the built-ins' independent JS recompute, or a custom pane's fresh subscription. */
-function wireCheck(el: HTMLElement, q: () => LiveQuery<unknown> | null): void {
-  el.querySelector(".check")!.addEventListener("click", () => {
-    const live = q();
-    if (!live) return;
-    const { ok, ms } = live.check();
-    const fresh = live.def.oracle === "resubscribe" ? "subscribed fresh" : "recomputed from scratch";
-    say(
-      ok
-        ? `${live.def.name}: ${fresh} in ${fmtMs(ms)} — identical to the folded view (${live.checks} checks, ${live.mismatches} mismatches)`
-        : `${live.def.name}: MISMATCH — ${live.lastMismatch ?? ""}`,
-    );
-    flash(el, ok ? "okflash" : "badflash");
-  });
 }
 
 const asShape = (r: ResultRow) => r as unknown as ShapeRow;
@@ -721,8 +701,8 @@ tallyPanel.body.addEventListener("click", (ev) => {
     // (`CanvasView.promote`). The layer is one path PER COLOUR, so which path a speck lives in
     // encodes its colour as surely as the vertices encode its position: recolour one in place and
     // the fingerprint does not move, `staticPlan` says "keep", and it goes on being filled in the
-    // colour it used to be. Right in the query, wrong on the glass — and the differential, which
-    // checks the query, would say nothing. The writer coalesces both patches into one edit.
+    // colour it used to be. Right in the query, wrong on the glass — the layer must be promoted
+    // before the writer coalesces both patches into one edit.
     if (s.who === CONFETTI_WHO) extraMuts.push({ op: "set", id: s.id, patch: { who: YOU } });
     extraMuts.push({ op: "set", id: s.id, patch: { color: chip.dataset.color } });
   }
@@ -880,8 +860,8 @@ function renderWalkPaneViews(): void {
 
 // ---------------------------------------------------------------------------------------------
 // The canvas's own query, pinned to the canvas. Every rail panel shows its chain; the canvas is
-// the flagship view, so its chain sits on the drawing it paints — flashing when the view folds,
-// with the same ✓ every panel has. It ignores the pointer (the ✓ aside), so drawing under it
+// the flagship view, so its chain sits on the drawing it paints — flashing when the view folds.
+// It ignores the pointer so drawing under it
 // still works.
 // ---------------------------------------------------------------------------------------------
 
@@ -890,15 +870,13 @@ const canvasDelta = canvasQ.querySelector<HTMLElement>(".delta")!;
 const canvasCode = canvasQ.querySelector<HTMLElement>(".code")!;
 // The canvas's chip shows ONE of the cell queries — they differ only in the cell id — with the
 // live count beside it, because "the canvas is 40 of these" is the whole point.
-wireCheck(canvasQ, () => (app.cells.views.values().next().value ?? null) as LiveQuery<unknown> | null);
 let paintSeq = -1;
 let canvasCodeShown = "";
 
 // ---------------------------------------------------------------------------------------------
 // Your own panes — fork any panel, or start from the template. The textarea IS the code pane:
-// its text is evaled as the real builder (see custom.ts), ⌘↩ re-subscribes, a bad edit shows
-// its error while the previous subscription keeps folding, and ✓ compares the folded view
-// against a fresh subscription of the same text.
+// its text is evaled as the real builder (see custom.ts), ⌘↩ subscribes it, and a bad edit shows
+// its error while the previous subscription keeps folding.
 // ---------------------------------------------------------------------------------------------
 
 const TEMPLATE = `q.shape\n  .where.color("coral")\n  .orderBy("area", "desc").limit(5)`;
@@ -923,7 +901,6 @@ function addCustomPane(code: string): void {
   el.id = `panel-yours-${id}`;
   el.innerHTML =
     `<header><h2>yours · ${id}</h2><span class="ph-right"><span class="hyd"></span>` +
-    `<button class="check" title="subscribe this query fresh and compare against the folded view">✓</button>` +
     `<button class="xclose" title="tear this pipeline out">✕</button></span></header>` +
     `<div class="qwrap"><pre class="code qhl" aria-hidden="true"></pre>` +
     `<textarea class="qedit" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>` +
@@ -931,7 +908,7 @@ function addCustomPane(code: string): void {
     `<div class="qerr"></div>` +
     `<div class="prow qactions"><button class="ghost apply">subscribe</button><span class="hint">⌃␣ completes · ⌘↩ applies</span></div>` +
     `<div class="pbody"></div>` +
-    `<p class="note">✓ checks the folded view against a fresh subscription of the same query</p>` +
+    `<p class="note">the engine keeps this subscription current as data changes</p>` +
     `<div class="delta"></div>`;
   $("rail").insertBefore(el, addBtn);
   const ta = el.querySelector<HTMLTextAreaElement>(".qedit")!;
@@ -942,7 +919,7 @@ function addCustomPane(code: string): void {
   enhanceEditor(el.querySelector<HTMLElement>(".qwrap")!).paint();
   const p: Panel = {
     title: `yours · ${id}`,
-    note: "✓ checks the folded view against a fresh subscription of the same query",
+    note: "the engine keeps this subscription current as data changes",
     q: () => app.customs.find((c) => c.id === id)?.live ?? null,
     el,
     body: el.querySelector(".pbody")!,
@@ -954,7 +931,6 @@ function addCustomPane(code: string): void {
     render: renderGeneric,
   };
   panels.push(p);
-  wireCheck(el, p.q);
   const apply = () => {
     const r = app.editCustom(id, ta.value);
     if (!r.ok) {
@@ -1086,9 +1062,7 @@ function frame(now: number): void {
   // change, only the edge moves. The interior of a pan costs nothing.
   app.lookAt(canvas.viewport(), canvas.zoom, now);
 
-  // 3 — paint. (The differential is on demand only — every panel's ✓, or "check all now". A
-  // from-scratch recompute is O(rows), the exact bill the engine exists to avoid, and the
-  // headless e2e already enforces the contract after every commit.)
+  // 3 — paint. Every panel reads the current rows from its maintained live query.
   canvas.render();
 
   // The canvas's query chip folds on the same beat as the canvas it describes.
@@ -1180,12 +1154,6 @@ function hud(now: number): void {
   $("hud-fold").textContent =
     `last commit ${s.lastCommitRows} row${s.lastCommitRows === 1 ? "" : "s"} → all views in ${fmtMs(s.lastCommitMs)}`;
 
-  const diff = $("difftotal");
-  diff.innerHTML =
-    s.mismatches === 0
-      ? `<b class="good">${fmtInt(s.checks)} differential checks · 0 mismatches</b>`
-      : `<b class="bad">${fmtInt(s.checks)} checks · ${fmtInt(s.mismatches)} MISMATCHES</b>`;
-
   // engineMsPerSec is ms of `store.write` wall time per second of wall clock — i.e. tenths of
   // a percent of the main thread. Rendered as the percent, which is the unit a reader has.
   $("memline").textContent =
@@ -1200,12 +1168,3 @@ function hud(now: number): void {
   const st = $("status");
   st.textContent = notice && now - noticeAt < 8000 ? notice : "";
 }
-
-$("checkall").addEventListener("click", () => {
-  const t0 = performance.now();
-  const { checks, mismatches } = app.checkAll();
-  say(
-    `recomputed all ${checks} queries from scratch in ${fmtMs(performance.now() - t0)} — ` +
-      `${mismatches} mismatches against the folded views`,
-  );
-});

@@ -4,21 +4,13 @@
 // and the selection card is an EXISTS over the `selection` table. Every painted query walks the
 // `onLayer` EXISTS gate.
 //
-// Each definition carries two implementations, side by side:
-//
-//   query()     — the Rindle query. Registered once, maintained by the engine forever after.
-//   recompute() — the same result, from scratch, over the JS mirror: the differential's
-//                 "fresh query" half — code that shares no operator, no index and no line with
-//                 the engine.
-//
-// The orderings tiebreak on the primary key ASCENDING because the engine's builder appends every
-// PK column not already in the ORDER BY as `asc` (rust/rindle/src/builder.rs, add_primary_keys).
-// Get that wrong and the differential reports mismatches on ties — which is how it was confirmed.
+// Each definition describes one maintained query. The orderings tiebreak on the primary key
+// ASCENDING because the engine's builder appends every PK column not already in the ORDER BY as
+// `asc` (rust/rindle/src/builder.rs, add_primary_keys).
 
 import { exists } from "@rindle/client";
 import type { AnyQuery, QueryRoot } from "@rindle/client";
 
-import type { LayerRow, Mirror, ShapeRow } from "./mirror.ts";
 import { cellCol } from "./cell.ts";
 import { layerShapes, onLayer, onSelection, type DrawCols } from "./schema.ts";
 
@@ -32,38 +24,10 @@ const onVisibleLayer = () => exists(onLayer, (l) => l.where.visible(1));
 
 export interface QueryDef<A> {
   readonly name: string;
-  /** Where `check()`'s fresh half comes from: "mirror" (the default — an independent JS
-   *  recompute over the mirror) or "resubscribe" (a fresh hydration of the same query; the
-   *  custom panes', which have no hand-written oracle — see `custom.ts`). */
-  readonly oracle?: "mirror" | "resubscribe";
   /** The panel's rendering of the query: the same builder chain `query()` registers, args
    *  inlined, written against the docs' named-query root `q`. */
   code(args: A): string;
   query(root: Root, args: A): AnyQuery;
-  recompute(mirror: Mirror, args: A): ResultRow[];
-}
-
-// ---------------------------------------------------------------------------------------------
-// Orderings (each mirrors what the engine's completed ORDER BY does, PK tiebreak included)
-// ---------------------------------------------------------------------------------------------
-
-const byZ = (a: ShapeRow, b: ShapeRow) => a.z - b.z || a.id - b.id;
-const byUpdatedDesc = (a: ShapeRow, b: ShapeRow) => b.updated - a.updated || a.id - b.id;
-const byAreaDesc = (a: ShapeRow, b: ShapeRow) => b.area - a.area || a.id - b.id;
-
-function asRows(rows: ShapeRow[]): ResultRow[] {
-  return rows as unknown as ResultRow[];
-}
-
-/** The recomputes' half of the gate — same predicate, plain JS over the mirror's layer map. */
-function visibleRows(m: Mirror): ShapeRow[] {
-  const out: ShapeRow[] = [];
-  for (const row of m.all()) if (m.visibleLayer(row.layer)) out.push(row);
-  return out;
-}
-
-function layersById(m: Mirror): LayerRow[] {
-  return [...m.allLayers()].sort((a, b) => a.id - b.id);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -79,7 +43,6 @@ export const paint: QueryDef<void> = {
   code: () =>
     `q.shape\n  .where(exists(onLayer,\n    (l) => l.where.visible(1)))\n  .orderBy("z", "asc")`,
   query: (root) => root.shape.where(onVisibleLayer()).orderBy("z", "asc") as AnyQuery,
-  recompute: (m) => asRows(visibleRows(m).sort(byZ)),
 };
 
 /** The palette tally: a real top-level aggregate, one row per color. Recoloring one shape moves
@@ -90,13 +53,6 @@ export const tally: QueryDef<void> = {
   name: "tally",
   code: () => `q.shape.groupBy("color").count()`,
   query: (root) => root.shape.groupBy("color").count() as AnyQuery,
-  recompute: (m) => {
-    const counts = new Map<string, number>();
-    for (const row of m.all()) counts.set(row.color, (counts.get(row.color) ?? 0) + 1);
-    return [...counts.entries()]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([color, count]) => ({ color, count }));
-  },
 };
 
 /** The leaderboard: largest six visible shapes by maintained `area`. */
@@ -105,7 +61,6 @@ export const top: QueryDef<void> = {
   code: () =>
     `q.shape\n  .where(exists(onLayer,\n    (l) => l.where.visible(1)))\n  .orderBy("area", "desc").limit(6)`,
   query: (root) => root.shape.where(onVisibleLayer()).orderBy("area", "desc").limit(6) as AnyQuery,
-  recompute: (m) => asRows(visibleRows(m).sort(byAreaDesc).slice(0, 6)),
 };
 
 /** The feed: the eight most recently written visible rows, whoever wrote them. */
@@ -114,7 +69,6 @@ export const recent: QueryDef<void> = {
   code: () =>
     `q.shape\n  .where(exists(onLayer,\n    (l) => l.where.visible(1)))\n  .orderBy("updated", "desc").limit(8)`,
   query: (root) => root.shape.where(onVisibleLayer()).orderBy("updated", "desc").limit(8) as AnyQuery,
-  recompute: (m) => asRows(visibleRows(m).sort(byUpdatedDesc).slice(0, 8)),
 };
 
 /** One cell of the canvas. `args` is the cell id and the level whose column holds it.
@@ -140,10 +94,6 @@ export const cellPaint: QueryDef<CellArgs> = {
   query: (root, a) => {
     const where = root.shape.where as unknown as Record<string, (v: number) => Root["shape"]>;
     return where[cellCol(a.level)](a.cell).where(onVisibleLayer()).orderBy("z", "asc") as AnyQuery;
-  },
-  recompute: (m, a) => {
-    const col = cellCol(a.level);
-    return asRows(visibleRows(m).filter((s) => s[col] === a.cell).sort(byZ));
   },
 };
 
@@ -172,12 +122,6 @@ export const extent: QueryDef<ExtentArgs> = {
   code: (a) =>
     `q.shape\n  .where(exists(onLayer,\n    (l) => l.where.visible(1)))\n  .orderBy("${a.col}", "${a.dir}").limit(1)`,
   query: (root, a) => root.shape.where(onVisibleLayer()).orderBy(a.col, a.dir).limit(1) as AnyQuery,
-  recompute: (m, a) => {
-    const rows = visibleRows(m).sort((p, q) =>
-      p[a.col] !== q[a.col] ? (a.dir === "asc" ? p[a.col] - q[a.col] : q[a.col] - p[a.col]) : p.id - q.id,
-    );
-    return asRows(rows.slice(0, 1));
-  },
 };
 
 /** The layers panel: every layer with a LIVE `countAs` of the shapes on it — the join, as a
@@ -186,11 +130,6 @@ export const layerCounts: QueryDef<void> = {
   name: "layers",
   code: () => `q.layer\n  .countAs("shapes", layerShapes)\n  .orderBy("id", "asc")`,
   query: (root) => root.layer.countAs("shapes", layerShapes).orderBy("id", "asc") as AnyQuery,
-  recompute: (m) => {
-    const counts = new Map<number, number>();
-    for (const s of m.all()) counts.set(s.layer, (counts.get(s.layer) ?? 0) + 1);
-    return layersById(m).map((l) => ({ ...l, shapes: counts.get(l.id) ?? 0 }));
-  },
 };
 
 /** The selection card: every SELECTED shape, in paint order.
@@ -215,9 +154,4 @@ export const selection: QueryDef<void> = {
   name: "selection",
   code: () => `q.shape\n  .where(exists(onSelection))\n  .orderBy("z", "asc")`,
   query: (root) => root.shape.where(exists(onSelection)).orderBy("z", "asc") as AnyQuery,
-  recompute: (m) => {
-    const out: ShapeRow[] = [];
-    for (const row of m.all()) if (m.isSelected(row.id)) out.push(row);
-    return asRows(out.sort(byZ));
-  },
 };
