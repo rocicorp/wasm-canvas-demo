@@ -1,11 +1,9 @@
 // The same rows, in one plain JS Map.
 //
-// The mirror holds the app-side state needed to build writes and track selection. It is kept
-// separate from the engine rows so a commit can provide each edit's previous value reliably.
-//
-// It is also where an edit's `old` row comes from: the engine is told a row's previous state on
-// every `tx.edit`, and a stale `old` is not an edit, it is a corruption — so there is exactly one
-// place rows live on the JS side, and every write goes through it.
+// The mirror holds the app-side state used by gestures, history, and selection. Application writes
+// are keyed patches and do not carry an old row. Only the terminal adapter to this demo's raw local
+// WASM engine resolves a patch here into the full old/new delta that engine consumes; a synced
+// Rindle client performs that resolution internally.
 
 export interface ShapeRow {
   id: number;

@@ -159,8 +159,16 @@
             <section class="walk-step" id="walk-write">
               <div class="walk-code">
                 <div class="walk-code-head"><span>03 · write</span><span>one shape</span></div>
-                <pre class="walk-source">await store.write((tx) => {
-  tx.edit("shape", previous, next);
+                <pre class="walk-source">const mutators = {
+  canvasFrame: shared(args, function* (tx, a) {
+    for (const next of a.shapeUpdates) {
+      yield tx.update("shape", next);
+    }
+  })
+};
+
+await mutate.canvasFrame({
+  shapeUpdates: [{ id, x, y }]
 });
 
 // Every affected view is current here.
@@ -170,17 +178,18 @@ palette.data;</pre>
                 <div class="walk-code-foot">
                   <span>demo implementation</span>
                   <span class="walk-source-links">
-                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/73e0384e5d5b77bb12f7260cd296518876502816/src/write.ts#L275-L283" target="_blank" rel="noopener noreferrer">write transaction · write.ts:275–283 <span aria-hidden="true">↗</span></a>
+                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/main/src/mutators.ts#L43-L61" target="_blank" rel="noopener noreferrer">named mutator · mutators.ts:43–61 <span aria-hidden="true">↗</span></a>
                   </span>
                 </div>
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">03 / Change state once</p>
-                <h2>Transactions are the only update path.</h2>
+                <h2>Named mutators are the only update path.</h2>
                 <p>
-                  Dragging a shape writes a row. Inside that same call, the engine derives the
-                  consequences and updates every affected query. When the promise resolves,
-                  the next paint already has the right data.
+                  Dragging sends the shape’s key and its new coordinates—never its old row. The
+                  client resolves the keyed update locally. Inside that same call, the engine
+                  derives the consequences and updates every affected query. When the promise
+                  resolves, the next paint already has the right data.
                 </p>
                 <aside class="walk-note"><b>Try it.</b> Drag a shape and watch the query panels pulse together.</aside>
               </div>
@@ -250,8 +259,8 @@ const painted = q.shape
   .where(visible)
   .orderBy("z", "asc");
 
-await store.write((tx) => {
-  tx.edit("layer", visibleLayer, hidden);
+await mutate.canvasFrame({
+  layerUpdates: [{ id, visible: 0 }]
 });</pre>
                 <div class="walk-code-foot">
                   <span>demo implementation</span>
@@ -289,8 +298,8 @@ await store.write((tx) => {
   .materialize();
 
 // Selection changes data, not the query.
-await store.write((tx) => {
-  tx.add("selection", { shape: id });
+await mutate.canvasFrame({
+  selectionAdds: [id]
 });</pre>
                 <div class="walk-code-foot">
                   <span>demo implementation</span>

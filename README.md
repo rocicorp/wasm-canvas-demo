@@ -44,8 +44,16 @@ Once materialized, `recent.data` contains the current answer.
 ### 03 / Change state once
 
 ```ts
-await store.write((tx) => {
-  tx.edit("shape", previous, next);
+const mutators = {
+  canvasFrame: shared(args, function* (tx, a) {
+    for (const next of a.shapeUpdates) {
+      yield tx.update("shape", next);
+    }
+  })
+};
+
+await mutate.canvasFrame({
+  shapeUpdates: [{ id, x, y }]
 });
 
 // Every affected view is current here.
@@ -54,7 +62,7 @@ largest.data;
 palette.data;
 ```
 
-Dragging a shape writes one row. During the same call, the engine derives the consequences and updates every affected query.
+Dragging sends the shape’s primary key and its new coordinates. The application does not fetch or send the old row. During the same call, the client resolves the keyed update and the engine updates every affected query.
 
 When the promise resolves, the next paint has the correct data.
 
@@ -94,8 +102,8 @@ const painted = q.shape
   .where(visible)
   .orderBy("z", "asc");
 
-await store.write((tx) => {
-  tx.edit("layer", visibleLayer, hidden);
+await mutate.canvasFrame({
+  layerUpdates: [{ id, visible: 0 }]
 });
 ```
 
@@ -112,8 +120,8 @@ const selected = q.shape
   .materialize();
 
 // Selection changes data, not the query.
-await store.write((tx) => {
-  tx.add("selection", { shape: id });
+await mutate.canvasFrame({
+  selectionAdds: [id]
 });
 ```
 
@@ -147,3 +155,7 @@ The browser test builds the site and drives the real page in Chrome.
 ## Scope
 
 This demo runs one engine in one browser tab. It does not include synchronization, collaboration, or a server.
+
+The raw local WASM `Store` still consumes full old/new deltas internally. `src/write.ts` constructs
+those only in its terminal engine adapter. The named mutator and its callers use keyed
+`insert`/`update`/`delete` operations, matching the application-facing `@rindle/client` API.

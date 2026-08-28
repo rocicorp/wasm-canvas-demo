@@ -164,9 +164,11 @@ try {
         clientAPIExamples:
           walkthroughSource.includes('q.shape') &&
           walkthroughSource.includes('.materialize()') &&
-          walkthroughSource.includes('store.write(') &&
-          walkthroughSource.includes('tx.edit(') &&
+          walkthroughSource.includes('mutate.canvasFrame(') &&
+          walkthroughSource.includes('tx.update(') &&
           walkthroughSource.includes('exists(') &&
+          !walkthroughSource.includes('store.write(') &&
+          !walkthroughSource.includes('tx.edit(') &&
           !walkthroughSource.includes('defineQuery(') &&
           !walkthroughSource.includes('useQuery(') &&
           !walkthroughSource.includes('zero.mutate('),
@@ -182,10 +184,11 @@ try {
         defaultWalkthrough,
         permalinks:
           sourceLinks.length === 9 &&
-          sourceLinks.every((link) =>
-            link.href.includes('/blob/73e0384e5d5b77bb12f7260cd296518876502816/') &&
-            link.hash.startsWith('#L') && link.hash.includes('-L')
-          ),
+          sourceLinks.every((link) => link.hash.startsWith('#L') && link.hash.includes('-L')) &&
+          sourceLinks.filter((link) =>
+            link.href.includes('/blob/73e0384e5d5b77bb12f7260cd296518876502816/')
+          ).length === 8 &&
+          sourceLinks.some((link) => link.href.includes('/blob/main/src/mutators.ts')),
         paneThumbs:
           paneThumbs.length === 7 &&
           paneThumbs.every((thumb) =>

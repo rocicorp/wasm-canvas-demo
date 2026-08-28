@@ -32,6 +32,7 @@ import {
 } from "../src/bots.ts";
 import { CELL0, LEVELS, cellAt, cellCol, cellSize, cellsForView, cellsOf, levelForZoom } from "../src/cell.ts";
 import { Mirror, type ShapeRow } from "../src/mirror.ts";
+import { runCanvasFrame } from "../src/mutators.ts";
 import { CONFETTI_PER_SCENE, confetti, confettiArea, initialScene } from "../src/scene.ts";
 import { CONFETTI_WHO, LAYERS, LAYER_CONFETTI, PALETTE, WORLD_H, WORLD_W } from "../src/schema.ts";
 import { Writer, type Mut } from "../src/write.ts";
@@ -140,6 +141,15 @@ function row(over: Partial<ShapeRow> & { id: number }): ShapeRow {
 // ---------------------------------------------------------------------------------------------
 // Writer coalescing (against a recording store — no engine)
 // ---------------------------------------------------------------------------------------------
+
+test("the named mutator emits a keyed patch, never an application-supplied old row", () => {
+  const ops = runCanvasFrame({
+    shapeUpdates: [{ id: 42, x: 120, y: 80 }],
+  });
+
+  assert.deepEqual(ops, [{ kind: "update", table: "shape", row: { id: 42, x: 120, y: 80 } }]);
+  assert.ok(!("old" in ops[0]) && !("new" in ops[0]));
+});
 
 interface Recorded {
   adds: ShapeRow[];
