@@ -134,8 +134,9 @@ export function confettiArea(view: Rect, n: number): Rect {
   return { x0: cx - hw, y0: cy - hh, x1: cx + hw, y1: cy + hh };
 }
 
-/** A batch of small inert shapes ("+2,000 shapes"). `who = 9`: the robots never touch them, so
- *  piling them on prices the QUERIES over a bigger base, not a busier workload.
+/** Generate a batch of small inert shapes ("+2,000 shapes"). `who = 9` keeps the generated pile
+ *  on the static base axis. `DrawApp.addConfetti` may reassign a bounded rate-dependent cohort
+ *  BEFORE committing it, so those few are born robot-owned without ever entering the cache.
  *
  *  `area` is where they land — sized by {@link confettiArea} when the page aims the drop, because
  *  the caller knows the size of the whole JOB and a batch only knows its own share. It can be the

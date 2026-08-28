@@ -760,8 +760,9 @@ try {
     (async () => {
       for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r));
       const cv = globalThis.rindleCanvas;
+      const draw = globalThis.rindleDraw;
       const canvas = document.getElementById('canvas');
-      const app = document.getElementById('app').getBoundingClientRect();
+      const appBox = document.getElementById('app').getBoundingClientRect();
       const stage = document.getElementById('stage').getBoundingClientRect();
       const box = canvas.getBoundingClientRect();
       const actions = document.querySelector('.actions').getBoundingClientRect();
@@ -771,10 +772,25 @@ try {
       const targetSizes = [...document.querySelectorAll('#tools button, .actions button')]
         .filter((el) => getComputedStyle(el).display !== 'none')
         .map((el) => el.getBoundingClientRect());
+
+      // Both event orderings: turn the rate up before any confetti exists, then drop it; after
+      // that, turn the rate up again and wake rows that are already in the static pile.
+      const beforeDrop = await draw.setBotRate(384, cv.viewport());
+      const lateDrop = await draw.addConfetti(200, cv.viewport());
+      const alive = () => [...draw.mirror.all()].filter((r) => r.layer === 3 && r.who >= 1 && r.who <= 3);
+      const afterDrop = alive();
+      const rampExisting = await draw.setBotRate(1536, cv.viewport());
+      const beforeMove = new Map(alive().map((r) => [r.id, { x: r.x, y: r.y }]));
+      await new Promise((r) => setTimeout(r, 350));
+      const moved = alive().filter((r) => {
+        const old = beforeMove.get(r.id);
+        return old && (old.x !== r.x || old.y !== r.y);
+      }).length;
+      const stopped = await draw.setBotRate(0, cv.viewport());
       return {
         innerWidth,
         innerHeight,
-        appHeight: app.height,
+        appHeight: appBox.height,
         stageWidth: stage.width,
         canvasWidth: box.width,
         canvasHeight: box.height,
@@ -792,6 +808,15 @@ try {
         touchTargets: targetSizes.every((r) => r.width >= 39.5 && r.height >= 39.5),
         touchAction: getComputedStyle(canvas).touchAction,
         noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
+        livingConfetti: {
+          beforeDrop,
+          born: lateDrop.awakened,
+          afterDrop: afterDrop.length,
+          rampExisting,
+          afterRamp: alive().length,
+          moved,
+          stopped: stopped.livingConfetti,
+        },
       };
     })()
   `);
@@ -812,7 +837,7 @@ try {
       `${layer.appends} appends / ${layer.rebuilds} re-traces into a layer holding ${layer.held}\n` +
       `  one drop at a time: 3 presses landed ${drop.landed} rows (one drop is ${drop.want})\n` +
       `  mobile: ${mobile.canvasWidth}×${mobile.canvasHeight} CSS px at ${mobile.backingScale.toFixed(1)}x DPR, ` +
-      `zoom ${mobile.zoom.toFixed(3)}\n`,
+      `zoom ${mobile.zoom.toFixed(3)} · ${mobile.livingConfetti.afterRamp} confetti alive\n`,
   );
 
   if (!(report.rows > 4200)) fail(`expected the seeded scene plus 4,000 confetti, got ${report.rows} rows`);
@@ -965,6 +990,18 @@ try {
   if (Math.abs(mobile.zoom - mobile.cssZoom) > 0.001) {
     fail(`DPR leaked into camera zoom (${mobile.zoom} vs CSS ${mobile.cssZoom})`);
   }
+  const life = mobile.livingConfetti;
+  if (life.beforeDrop.awakened !== 0 || life.beforeDrop.livingConfetti !== 0) {
+    fail(`ramping before a drop invented confetti that does not exist: ${JSON.stringify(life)}`);
+  }
+  if (life.born !== 32 || life.afterDrop !== 32) {
+    fail(`a post-ramp drop did not arrive with its 32-row living cohort: ${JSON.stringify(life)}`);
+  }
+  if (life.rampExisting.awakened !== 32 || life.afterRamp !== 64) {
+    fail(`the next rate rung did not wake 32 existing confetti: ${JSON.stringify(life)}`);
+  }
+  if (life.moved === 0) fail(`living confetti joined the herd but never moved: ${JSON.stringify(life)}`);
+  if (life.stopped !== 64) fail(`turning robots off demoted living confetti: ${JSON.stringify(life)}`);
 
   // -- the confetti layer's cache ---------------------------------------------------------------
   if (layer.commits < 2) fail(`the drop did not batch (${layer.commits} commits) — nothing to append`);

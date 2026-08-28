@@ -9,7 +9,7 @@
 
 import type { ArrayView, FlatChange, WireSchema } from "@rindle/client";
 
-import { Bots } from "./bots.ts";
+import { Bots, botOwnerFor, isBotOwner, livingConfettiTarget } from "./bots.ts";
 import { cellsForView, levelForZoom } from "./cell.ts";
 import { errText, makeCustomDef } from "./custom.ts";
 import { boot, type Engine } from "./engine.ts";
@@ -31,7 +31,7 @@ import {
   type ResultRow,
 } from "./queries.ts";
 import { confetti, confettiArea, initialScene } from "./scene.ts";
-import { CONFETTI_WHO, LAYERS, YOU } from "./schema.ts";
+import { CONFETTI_WHO, LAYERS, LAYER_CONFETTI, YOU } from "./schema.ts";
 import { Writer, type Mut } from "./write.ts";
 
 /** Every subscription ever made, counted. See {@link LiveQuery.seq}. */
@@ -696,14 +696,57 @@ export class DrawApp {
     return rows.length > 0 ? rows[0] : null;
   }
 
-  /** Set the robots' write rate (0 = off). Writes coalesce per row per frame, so a higher rate
-   *  first spawns whatever extra drifters keep it honest — robot-owned, never confetti — in ONE
-   *  commit, then turns the dial. They are minted inside `area` (the page passes the viewport),
-   *  so the writers you just asked for turn up where you are looking. */
+  /** How many confetti rows have permanently left the static pile and joined a robot. */
+  private livingConfettiCount(): number {
+    let count = 0;
+    for (const row of this.mirror.all()) {
+      if (row.layer === LAYER_CONFETTI && isBotOwner(row.who)) count++;
+    }
+    return count;
+  }
+
+  /** Wake enough EXISTING confetti to meet this rate's bounded target.
+   *
+   *  Prefer the viewport, because a visitor who turns the dial should see the result where they
+   *  are looking. Every promotion lands in ONE commit, so the Path2D cache rebuilds once rather
+   *  than once per speck. Promotion is permanent: lowering the rate slows/freezes the cohort but
+   *  never returns it to the static cache and pays that rebuild again. */
+  private async awakenExistingConfetti(perSec: number, area?: Rect): Promise<number> {
+    const need = Math.max(0, livingConfettiTarget(perSec) - this.livingConfettiCount());
+    if (need === 0) return 0;
+
+    const near: ShapeRow[] = [];
+    const far: ShapeRow[] = [];
+    for (const row of this.mirror.all()) {
+      if (row.layer !== LAYER_CONFETTI || row.who !== CONFETTI_WHO) continue;
+      const here =
+        area !== undefined && row.x >= area.x0 && row.x <= area.x1 && row.y >= area.y0 && row.y <= area.y1;
+      const bucket = here ? near : far;
+      if (bucket.length < need) bucket.push(row);
+    }
+    const rows = [...near, ...far].slice(0, need);
+    if (rows.length === 0) return 0;
+
+    // Not recorded: waking a speck is part of turning the robots' dial, not a drawing edit the
+    // visitor should have to undo. Changing `who` first also removes it from the static renderer
+    // before the first robot can move or recolour it.
+    await this.commit(
+      rows.map((row) => ({ op: "set" as const, id: row.id, patch: { who: botOwnerFor(row.id) } })),
+      false,
+    );
+    this.bots.adopt();
+    return rows.length;
+  }
+
+  /** Set the robots' write rate (0 = off). A higher rung first wakes a bounded confetti cohort,
+   *  then spawns whatever extra drifters keep the requested per-frame write count honest. Both
+   *  prefer `area` (the viewport), so the activity the visitor asked for appears where they are
+   *  looking. */
   async setBotRate(
     perSec: number,
     area?: { x0: number; y0: number; x1: number; y1: number },
-  ): Promise<{ spawned: number }> {
+  ): Promise<{ spawned: number; awakened: number; livingConfetti: number }> {
+    const awakened = await this.awakenExistingConfetti(perSec, area);
     const need = perSec > 0 ? this.bots.herdFor(perSec) - this.bots.herdSize : 0;
     if (need > 0) {
       const rows = this.bots.drifters(need, (...a) => this.writer.draft(...a), area);
@@ -714,11 +757,13 @@ export class DrawApp {
     }
     this.bots.perSec = perSec;
     this.bots.enabled = perSec > 0;
-    return { spawned: Math.max(0, need) };
+    return { spawned: Math.max(0, need), awakened, livingConfetti: this.livingConfettiCount() };
   }
 
-  /** Drop `n` small inert shapes — the base grows, the queries get more to hold, and the HUD
-   *  shows what it cost.
+  /** Drop `n` small, mostly inert shapes — the base grows, the queries get more to hold, and the
+   *  HUD shows what it cost. If the robot dial already unlocked more living confetti than exists,
+   *  that small deficit is born robot-owned; it never enters the static cache, so satisfying the
+   *  same target before OR after a drop has the same result without an avoidable rebuild.
    *
    *  Committed in batches of {@link CONFETTI_BATCH}, ONE PER FRAME: a press is a job that lands
    *  over the next few frames rather than a single transaction that stops the page for the
@@ -742,10 +787,15 @@ export class DrawApp {
     n: number,
     area?: Rect,
     onBatch?: (batch: { rows: number; done: number; total: number; ms: number }) => void,
-  ): Promise<{ ms: number; rows: number; commits: number }> {
+  ): Promise<{ ms: number; rows: number; commits: number; awakened: number }> {
     let ms = 0;
     let done = 0;
     let commits = 0;
+    let awakened = 0;
+    let wakeRemaining = Math.max(
+      0,
+      livingConfettiTarget(this.bots.enabled ? this.bots.perSec : 0) - this.livingConfettiCount(),
+    );
     const scatter = area && confettiArea(area, n);
     while (done < n) {
       // Every batch after the first waits for a frame. The first does not: a press should put
@@ -759,6 +809,17 @@ export class DrawApp {
         this.writer.clockHighWater + 1,
         scatter,
       );
+      // These rows have never been traced into the static Path2D, so making the missing cohort
+      // robot-owned NOW is cheaper than adding them as inert and promoting them one commit later.
+      // The target is <=128 and a normal batch is 2,000, so this is ordinarily first-batch work.
+      let wokeThisBatch = 0;
+      for (const row of rows) {
+        if (wakeRemaining === 0) break;
+        row.who = botOwnerFor(row.id);
+        wakeRemaining--;
+        awakened++;
+        wokeThisBatch++;
+      }
       // ONE history step per DROP, not per batch — ⌘Z undoes the press you made, not the last
       // sixteenth of it. The first batch opens a fresh step; the rest re-mark with the same tag
       // inside a coalescing window, which keeps that step open across the frames the job spans.
@@ -779,12 +840,13 @@ export class DrawApp {
       // 32,000 removes in one commit.
       this.mark("confetti", commits === 0 ? 0 : 5000);
       const res = await this.writer.seed(rows, true);
+      if (wokeThisBatch > 0) this.bots.adopt();
       ms += res.ms;
       done += res.rows;
       commits++;
       onBatch?.({ rows: res.rows, done, total: n, ms });
     }
-    return { ms, rows: done, commits };
+    return { ms, rows: done, commits, awakened };
   }
 
   /** One transaction. `record` is whether it belongs to YOUR history — the robots' ticks and an
