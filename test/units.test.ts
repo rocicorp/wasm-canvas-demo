@@ -23,11 +23,17 @@ import {
   type Frame,
 } from "../src/geom.ts";
 import { History } from "../src/history.ts";
-import { Bots, ROAM } from "../src/bots.ts";
+import {
+  Bots,
+  ROAM,
+  botOwnerFor,
+  isBotOwner,
+  livingConfettiTarget,
+} from "../src/bots.ts";
 import { CELL0, LEVELS, cellAt, cellCol, cellSize, cellsForView, cellsOf, levelForZoom } from "../src/cell.ts";
 import { Mirror, type ShapeRow } from "../src/mirror.ts";
 import { CONFETTI_PER_SCENE, confetti, confettiArea, initialScene } from "../src/scene.ts";
-import { CONFETTI_WHO, LAYERS, PALETTE, WORLD_H, WORLD_W } from "../src/schema.ts";
+import { CONFETTI_WHO, LAYERS, LAYER_CONFETTI, PALETTE, WORLD_H, WORLD_W } from "../src/schema.ts";
 import { Writer, type Mut } from "../src/write.ts";
 import type { DrawStore } from "../src/engine.ts";
 
@@ -317,6 +323,38 @@ test("a drop keeps a world-space density: far-out views contain it and close-ups
 // ---------------------------------------------------------------------------------------------
 // The robots
 // ---------------------------------------------------------------------------------------------
+
+test("write-rate rungs wake a bounded confetti cohort", () => {
+  assert.equal(livingConfettiTarget(0), 0);
+  assert.equal(livingConfettiTarget(24), 0, "the opening murmur keeps the base inert");
+  assert.equal(livingConfettiTarget(96), 16);
+  assert.equal(livingConfettiTarget(384), 32);
+  assert.equal(livingConfettiTarget(1536), 64);
+  assert.equal(livingConfettiTarget(6144), 128);
+  assert.equal(livingConfettiTarget(100_000), 128, "the cohort does not scale with the pile");
+  for (let id = 1; id <= 30; id++) assert.ok(isBotOwner(botOwnerFor(id)));
+});
+
+test("robots adopt awakened confetti but leave inert confetti alone", () => {
+  const mirror = new Mirror();
+  const awake = row({ id: 1, layer: LAYER_CONFETTI, who: botOwnerFor(1) });
+  const inert = row({ id: 2, layer: LAYER_CONFETTI, who: CONFETTI_WHO });
+  mirror.add(awake);
+  mirror.add(inert);
+  const bots = new Bots(mirror);
+  bots.perSec = 600;
+  assert.equal(bots.herdSize, 1);
+
+  let awakeMoved = false;
+  for (let t = 1; t <= 40; t++) {
+    for (const mut of bots.tick(50, t * 50, null)) {
+      assert.equal(mut.op, "set");
+      assert.equal(mut.id, awake.id, "the inert confetto never entered the herd");
+      if (mut.patch.x !== undefined || mut.patch.y !== undefined) awakeMoved = true;
+    }
+  }
+  assert.equal(awakeMoved, true);
+});
 
 test("a robot drifts around wherever its shape lives — there is no world edge to bounce off", () => {
   const mirror = new Mirror();

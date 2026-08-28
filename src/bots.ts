@@ -2,9 +2,9 @@
 // you touch it and OTHER writers' commits keep folding into your views while you work.
 //
 // They are ordinary writers — their muts go through the same `Writer.commit` funnel as your
-// drags, one transaction per tick. They never touch a shape you are holding (`exclude`), and
-// they never touch confetti (`who = 9`) — see `ROAM` for where they DO go, and the note on
-// `adopt` for why the confetti pile is the one thing they leave alone.
+// drags, one transaction per tick. They never touch a shape you are holding (`exclude`). Almost
+// all confetti stays inert (`who = 9`), but higher write-rate rungs may WAKE a bounded cohort by
+// assigning it to a robot first; see `livingConfettiTarget` and the note on `adopt`.
 //
 // Rate is row-writes per second, budgeted across ticks the same way the old scale demo's
 // workload budgeted (never accruing more than one second of work). The default murmur keeps the
@@ -19,7 +19,29 @@ import { rng } from "./scene.ts";
 import { PALETTE, WORLD_H, WORLD_W } from "./schema.ts";
 import type { Mut, Writer } from "./write.ts";
 
-const BOT_IDS = [1, 2, 3];
+export const BOT_IDS = [1, 2, 3] as const;
+
+/** The default 24/s murmur animates the opening drawing but leaves every confetto inert. Above
+ *  it, each 4x rate rung doubles a small live cohort: 96→16, 384→32, 1536→64, 6144→128.
+ *
+ *  This is deliberately a TARGET, not a fraction of the pile. A 120k-row stress test must not
+ *  silently become 120k per-frame draw calls or 120k velocity records. Once awakened, a speck
+ *  stays robot-owned; lowering the rate freezes/slows it rather than returning it to the static
+ *  Path2D and forcing another whole-pile rebuild. */
+export function livingConfettiTarget(perSec: number): number {
+  if (perSec <= 24) return 0;
+  return Math.min(128, Math.round(8 * Math.sqrt(perSec / 24)));
+}
+
+export function isBotOwner(who: number): boolean {
+  return BOT_IDS.includes(who as (typeof BOT_IDS)[number]);
+}
+
+/** Stable ownership spreads a cohort evenly without needing another counter in application
+ *  state. IDs are monotone, so adjacent confetti naturally round-robin across the three bots. */
+export function botOwnerFor(id: number): (typeof BOT_IDS)[number] {
+  return BOT_IDS[Math.abs(id) % BOT_IDS.length];
+}
 
 /** How far a shape wanders from where the robots first found it, in world units, per axis.
  *
@@ -104,19 +126,15 @@ export class Bots {
 
   /** (Re)collect the robots' shapes from the mirror. Call after seeding.
    *
-   *  A robot owns what it drew (`who` 1–3), which is the whole opening scene and every drifter
-   *  minted since. It deliberately does NOT adopt confetti (`who = 9`): those rows paint from a
-   *  cached layer keyed on the pile's MEMBERSHIP, not on where its specks are, so a robot moving
-   *  one would leave it drawn at its old position — and re-keying the cache on position would put
-   *  a 64k-path re-trace on the frame every ambient write lands, which is the rendering artifact
-   *  the layer exists to keep out of the demo's numbers. Confetti is the base axis; it is
-   *  supposed to sit still and cost the QUERIES something. Touch one with a gesture that moves or
-   *  reshapes it and it promotes itself out of the pile — that is the way a speck comes to life,
-   *  and your hand stays the only thing that does it. */
+   *  A robot owns every row whose `who` is 1–3: the opening scene, drifters, and the bounded
+   *  confetti cohort DrawApp has explicitly awakened. Inert confetti remains `who = 9` and is
+   *  never adopted. That distinction is load-bearing: `who = 9` rows paint from a Path2D cache
+   *  keyed on membership, not position, so moving one in place would leave its pixels behind.
+   *  Waking a speck changes its owner FIRST, taking it permanently out of that static layer. */
   adopt(): void {
     this.herd = [];
     for (const row of this.mirror.all()) {
-      if (BOT_IDS.includes(row.who)) this.herd.push(row.id);
+      if (isBotOwner(row.who)) this.herd.push(row.id);
     }
     const live = new Set(this.herd);
     for (const id of this.velocity.keys()) {

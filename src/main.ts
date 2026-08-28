@@ -234,7 +234,7 @@ confettiBtn.addEventListener("click", () => {
   paintConfettiBtn();
   void (async () => {
     try {
-      const { ms, rows, commits } = await app.addConfetti(want, canvas.viewport(), (b) => {
+      const { ms, rows, commits, awakened } = await app.addConfetti(want, canvas.viewport(), (b) => {
         outstanding -= b.rows;
         dropping -= b.rows;
         paintConfettiBtn();
@@ -245,11 +245,16 @@ confettiBtn.addEventListener("click", () => {
           );
         }
       });
+      const living =
+        awakened > 0
+          ? ` · ${fmtInt(awakened)} arrived alive because the robots were already turned up`
+          : "";
       say(
         commits === 1
-          ? `+${fmtInt(rows)} rows in ONE commit — every query folded it in ${fmtMs(ms)}`
+          ? `+${fmtInt(rows)} rows in ONE commit — every query folded it in ${fmtMs(ms)}${living}`
           : `+${fmtInt(rows)} rows in ${commits} commits of ${fmtInt(CONFETTI_BATCH)}, one a frame — ` +
-              `every query folded all of it in ${fmtMs(ms)} of engine time, and no frame carried the whole pile`,
+              `every query folded all of it in ${fmtMs(ms)} of engine time, and no frame carried the whole pile` +
+              living,
       );
     } finally {
       // Whatever never landed (a batch that threw) stops holding a reservation against the cap.
@@ -294,14 +299,20 @@ botsBtn.addEventListener("click", () => {
   const i = app.bots.enabled ? BOT_RATES.indexOf(app.bots.perSec) : -1;
   const next = i === BOT_RATES.length - 1 ? 0 : BOT_RATES[i + 1] ?? BOT_RATES[0];
   botsBtn.disabled = true;
-  void app.setBotRate(next, canvas.viewport()).then(({ spawned }) => {
+  void app.setBotRate(next, canvas.viewport()).then(({ spawned, awakened, livingConfetti }) => {
     botsBtn.disabled = false;
     paintBots();
+    const changes = [
+      awakened > 0 ? `${fmtInt(awakened)} confetti woke up here` : "",
+      spawned > 0 ? `${fmtInt(spawned)} drifters spawned here` : "",
+    ].filter(Boolean);
     say(
       next === 0
-        ? "robots off — the only writer left is you"
+        ? `robots off — the only writer left is you` +
+            (livingConfetti > 0 ? `; ${fmtInt(livingConfetti)} living confetti froze in place` : "")
         : `robots now writing ${fmtInt(next)} rows/s` +
-            (spawned > 0 ? ` (+${fmtInt(spawned)} drifters spawned here to carry the rate)` : "") +
+            (changes.length > 0 ? ` (${changes.join("; ")})` : "") +
+            (livingConfetti > 0 ? ` · ${fmtInt(livingConfetti)} confetti alive` : "") +
             " — every write folds into every affected view",
     );
   });
