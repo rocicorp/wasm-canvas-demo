@@ -1,8 +1,10 @@
 // The write funnel. Every mutation on the page — your drag, a robot's drift, a 2,000-row
 // confetti drop — goes through `commit()`, which does exactly three things, in order:
 //
-//   1. build the rows (ids, clocks, `area`, and each edit's `old` row from the mirror);
-//   2. `store.write(...)` — timed. The call is synchronous and in-process: the commit, the
+//   1. coalesce application intents into one named `canvasFrame` mutation whose updates contain
+//      only a primary key and changed columns;
+//   2. at the raw local-engine boundary, resolve those ops to full old/new rows and call
+//      `store.write(...)` — timed. The call is synchronous and in-process: the commit, the
 //      derivation of every affected pipeline, and the fold of every affected view all happen
 //      inside it, so its wall time IS write→visible, not a lower bound on it;
 //   3. apply the same rows to the JS mirror, so future writes use the current state.
@@ -11,18 +13,21 @@
 // paints are one edit with the last position, which is what an app would write, and it keeps
 // "writes/s" an honest count of committed row-writes rather than of mouse events.
 
+import type { MutationOp, WriteTx } from "@rindle/client";
+
 import type { DrawStore } from "./engine.ts";
 import type { LayerRow, Mirror, ShapeRow } from "./mirror.ts";
 import { Rate, Samples } from "./metrics.ts";
 import { cellsOf } from "./cell.ts";
 import { round1, roundRot } from "./scene.ts";
-import { LAYER_DRAWING, type Kind } from "./schema.ts";
+import { runCanvasFrame, type CanvasFrameArgs, type ShapeChanges } from "./mutators.ts";
+import { LAYER_DRAWING, type DrawCols, type Kind } from "./schema.ts";
 
 /** The columns a `set` may write. `z` is in here for one reason: undo. Nothing else writes it
  *  directly (`raise` mints the next one), but restoring a raised shape's old paint order is
  *  exactly what the inverse of a raise IS, and an inverse that could not say `z` would put the
  *  drawing back in the wrong order — see `history.ts`. */
-export type SetPatch = Partial<Pick<ShapeRow, "x" | "y" | "w" | "h" | "rot" | "color" | "who" | "z">>;
+export type SetPatch = ShapeChanges;
 
 export type Mut =
   | { op: "add"; row: ShapeRow }
@@ -58,6 +63,59 @@ export interface CommitRecord {
   edits: Array<{ prev: ShapeRow; next: ShapeRow; keys: Array<keyof SetPatch> }>;
   removes: ShapeRow[];
   layers: Array<{ prev: LayerRow; next: LayerRow }>;
+}
+
+interface EngineBoundaryRows {
+  shapeEdits?: ReadonlyMap<number, { prev: ShapeRow; next: ShapeRow }>;
+  shapeRemoves?: ReadonlyMap<number, ShapeRow>;
+  layerEdits?: ReadonlyMap<number, { prev: LayerRow; next: LayerRow }>;
+}
+
+/** Adapt application MutationOps to the raw in-process Store protocol. The WASM engine consumes
+ *  deltas, so updates/removes need their previous full row here. This is deliberately a terminal
+ *  seam: neither the named mutator nor any caller receives or sends that row. */
+function applyEngineOps(tx: WriteTx<DrawCols>, ops: readonly MutationOp[], rows: EngineBoundaryRows): void {
+  for (const op of ops) {
+    if (op.kind === "insert") {
+      if (op.table === "shape") tx.add("shape", op.row as unknown as ShapeRow);
+      else if (op.table === "layer") tx.add("layer", op.row as unknown as LayerRow);
+      else if (op.table === "selection") tx.add("selection", op.row as unknown as { shape: number });
+      else throw new Error(`unknown insert table: ${op.table}`);
+      continue;
+    }
+
+    if (op.kind === "update") {
+      const id = Number(op.row.id);
+      if (op.table === "shape") {
+        const edit = rows.shapeEdits?.get(id);
+        if (!edit) throw new Error(`missing engine shape edit for ${id}`);
+        tx.edit("shape", edit.prev, edit.next);
+      } else if (op.table === "layer") {
+        const edit = rows.layerEdits?.get(id);
+        if (!edit) throw new Error(`missing engine layer edit for ${id}`);
+        tx.edit("layer", edit.prev, edit.next);
+      } else {
+        throw new Error(`unknown update table: ${op.table}`);
+      }
+      continue;
+    }
+
+    if (op.kind === "delete") {
+      if (op.table === "shape") {
+        const id = Number(op.pk.id);
+        const prev = rows.shapeRemoves?.get(id);
+        if (!prev) throw new Error(`missing engine shape removal for ${id}`);
+        tx.remove("shape", prev);
+      } else if (op.table === "selection") {
+        tx.remove("selection", { shape: Number(op.pk.shape) });
+      } else {
+        throw new Error(`unknown delete table: ${op.table}`);
+      }
+      continue;
+    }
+
+    throw new Error(`unsupported local mutation op: ${op.kind}`);
+  }
 }
 
 export class Writer {
@@ -106,7 +164,7 @@ export class Writer {
   seedLayers(rows: LayerRow[]): Promise<void> {
     return this.enqueue(async () => {
       await this.store.write((tx) => {
-        for (const r of rows) tx.add("layer", r);
+        applyEngineOps(tx, runCanvasFrame({ layerAdds: rows }), {});
       });
       for (const r of rows) this.mirror.addLayer(r);
     });
@@ -136,7 +194,7 @@ export class Writer {
     }
     const t0 = performance.now();
     await this.store.write((tx) => {
-      for (const r of rows) tx.add("shape", r);
+      applyEngineOps(tx, runCanvasFrame({ shapeAdds: rows }), {});
     });
     const ms = performance.now() - t0;
     for (const r of rows) this.mirror.add(r);
@@ -232,18 +290,20 @@ export class Writer {
       }
     }
 
-    // Build the edit pairs from the mirror BEFORE writing: the engine is told each row's previous
-    // state, and a stale `old` is a corruption, not an edit.
+    // Resolve updates against the mirror only for the raw local engine. The named mutator below
+    // receives `{ id, ...changedColumns }`; its caller never handles either full row.
     const edits: CommitRecord["edits"] = [];
     for (const [id, patch] of patches) {
       const prev = this.mirror.get(id);
       if (!prev) continue;
-      const next = finishRow(prev, patch, ++this.clock);
+      const next = finishRow(prev, patch, this.clock + 1);
       // The columns that actually MOVED — the patch's own keys, minus the ones that landed on
       // the value already there (a drag re-offers `y` every frame while only `x` changes). This
       // is what an inverse is built from, and it is free to compute here where both rows are in
       // hand.
       const keys = (Object.keys(patch) as Array<keyof SetPatch>).filter((k) => prev[k] !== next[k]);
+      if (keys.length === 0) continue;
+      this.clock++;
       edits.push({ prev, next, keys });
     }
     const removals: ShapeRow[] = [];
@@ -272,14 +332,28 @@ export class Writer {
       addRows.length + edits.length + removals.length + layerEdits.length + selAdds.length + selRemoves.length;
     if (rows === 0) return null;
 
+    const args: CanvasFrameArgs = {
+      shapeAdds: addRows,
+      shapeUpdates: edits.map((edit) =>
+        Object.assign(
+          { id: edit.next.id },
+          Object.fromEntries(edit.keys.map((key) => [key, edit.next[key]])) as SetPatch,
+        ),
+      ),
+      shapeRemoves: removals.map((row) => row.id),
+      layerUpdates: layerEdits.map(({ next }) => ({ id: next.id, visible: next.visible })),
+      selectionAdds: selAdds,
+      selectionRemoves: selRemoves,
+    };
+    const boundary: EngineBoundaryRows = {
+      shapeEdits: new Map(edits.map((edit) => [edit.next.id, edit])),
+      shapeRemoves: new Map(removals.map((row) => [row.id, row])),
+      layerEdits: new Map(layerEdits.map((edit) => [edit.next.id, edit])),
+    };
+
     const t0 = performance.now();
     await this.store.write((tx) => {
-      for (const r of addRows) tx.add("shape", r);
-      for (const e of edits) tx.edit("shape", e.prev, e.next);
-      for (const r of removals) tx.remove("shape", r);
-      for (const e of layerEdits) tx.edit("layer", e.prev, e.next);
-      for (const id of selAdds) tx.add("selection", { shape: id });
-      for (const id of selRemoves) tx.remove("selection", { shape: id });
+      applyEngineOps(tx, runCanvasFrame(args), boundary);
     });
     const ms = performance.now() - t0;
 

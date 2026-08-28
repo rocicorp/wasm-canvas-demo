@@ -26,7 +26,7 @@ import { schema } from "./schema.ts";
  *  last two split on membership, so `shape`/`x`/`color` read as YOUR schema, not as API. */
 export const BUILDER_METHODS = ["where", "orderBy", "limit", "groupBy", "count", "countAs", "select"];
 const METHOD_SET = new Set(BUILDER_METHODS);
-const KEYWORD_SET = new Set(["await", "const", "function", "let", "return"]);
+const KEYWORD_SET = new Set(["await", "const", "for", "function", "let", "of", "return", "yield"]);
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
