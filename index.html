@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>zero paint demo</title>
+    <title>Zero paint</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="boot">
-      <h1>zero paint demo</h1>
+      <h1>Zero paint</h1>
       <p class="lede">booting the wasm engine…</p>
     </div>
 
@@ -17,7 +17,7 @@
         <div class="brand">
           <!-- Absolute, not `/demo`: this page is served both from rindle.sh/demo/canvas/
                and from a bare `vite dev` on :5173, where a site-relative path 404s. -->
-          <a href="https://rindle.sh/demo">zero</a> paint demo
+          <a href="https://zerosync.dev/">Zero</a> paint
         </div>
         <nav id="viewtabs" aria-label="Demo views">
           <button class="viewtab on" data-view="canvas" aria-controls="body" aria-pressed="true">canvas</button>
@@ -227,8 +227,31 @@ const cell = q.shape
                   cell boundary removes it from one canvas query and inserts it into its neighbor.
                 </p>
                 <p>
-                  These are not four update handlers. They are four declarations.
+                  These are not four update handlers. They are four declarations. Edit the live
+                  row below and watch only the impacted panels react.
                 </p>
+                <div class="walk-shape-lab" id="walk-shape-lab">
+                  <div class="walk-shape-lab-head">
+                    <b>Edit one live row</b>
+                    <span id="walk-shape-meta"></span>
+                  </div>
+                  <div class="walk-shape-stage" id="walk-shape-stage">
+                    <button
+                      class="walk-edit-shape"
+                      id="walk-edit-shape"
+                      type="button"
+                      aria-label="Editable shape. Drag to move; drag its lower-right corner to resize. Arrow keys move; Shift plus arrow keys resize."
+                    >
+                      <span class="walk-edit-fill"></span>
+                      <span class="walk-edit-handle" aria-hidden="true"></span>
+                    </button>
+                    <span class="walk-shape-stage-hint">drag to move · pull the corner to resize</span>
+                  </div>
+                  <div class="walk-shape-colors">
+                    <span>recolor</span>
+                    <div id="walk-shape-swatches" aria-label="Shape color"></div>
+                  </div>
+                </div>
                 <div class="walk-pane-gallery" aria-label="The four derived components in the demo">
                   <figure class="walk-pane-ref">
                     <figcaption><span>Live from the demo</span><b>Palette</b></figcaption>

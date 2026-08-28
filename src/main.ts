@@ -18,7 +18,7 @@ import type { ResultRow } from "./queries.ts";
 import type { ShapeRow } from "./mirror.ts";
 import { fmtInt, fmtMs, Samples } from "./metrics.ts";
 import { CONFETTI_WHO, HEX, PALETTE, YOU } from "./schema.ts";
-import type { Mut } from "./write.ts";
+import type { Mut, SetPatch } from "./write.ts";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -35,6 +35,7 @@ $("app").hidden = false;
 
 let walkthroughOpen = false;
 let walkThumbsDirty = false;
+let walkShapeReset = true;
 const walkthrough = $("walkthrough");
 const body = $("body");
 const foot = $("foot");
@@ -66,6 +67,7 @@ function showView(view: DemoView, scrollTop = 0, focusPanelId?: string): void {
   }
   if (walkthroughOpen) {
     walkThumbsDirty = true;
+    walkShapeReset = true;
     walkthrough.focus({ preventScroll: true });
     walkthrough.scrollTop = scrollTop;
   } else if (focusPanelId) {
@@ -125,6 +127,226 @@ showView(initialView);
 
 /** Muts queued by the PAGE (palette recolor, delete key) — committed with the gesture muts. */
 let extraMuts: Mut[] = [];
+
+// Step 04's proof: one real row from the drawing, editable without leaving the walkthrough. The
+// edits join `extraMuts`, so they pass through the same Writer transaction as canvas gestures and
+// the cloned panel cards repaint only when their already-materialized queries fold the delta.
+const walkShapeLab = $<HTMLElement>("walk-shape-lab");
+const walkShapeStage = $<HTMLElement>("walk-shape-stage");
+const walkShapeEl = $<HTMLButtonElement>("walk-edit-shape");
+const walkShapeFill = walkShapeEl.querySelector<HTMLElement>(".walk-edit-fill")!;
+const walkShapeMeta = $<HTMLElement>("walk-shape-meta");
+const walkShapeSwatches = $<HTMLElement>("walk-shape-swatches");
+const WALK_SHAPE_PREFERRED_ID = 10;
+const WALK_SHAPE_MARGIN = 18;
+
+let walkShapeId = WALK_SHAPE_PREFERRED_ID;
+let walkShapeOrigin: { id: number; x: number; y: number } | null = null;
+let walkShapePreview: { id: number; patch: SetPatch } | null = null;
+let walkShapeGesture:
+  | {
+      pointerId: number;
+      mode: "move" | "resize";
+      clientX: number;
+      clientY: number;
+      localX: number;
+      localY: number;
+      row: ShapeRow;
+    }
+  | null = null;
+
+walkShapeSwatches.innerHTML = PALETTE.map(
+  ({ key, hex }) =>
+    `<button class="walk-shape-swatch" type="button" data-color="${key}" ` +
+    `style="--swatch:${hex}" title="recolor this row ${key}" aria-label="Recolor shape ${key}"></button>`,
+).join("");
+
+const clampWalk = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+const roundWalk = (value: number): number => Math.round(value * 10) / 10;
+
+function chooseWalkShape(): ShapeRow | undefined {
+  const preferred = app.mirror.get(WALK_SHAPE_PREFERRED_ID);
+  if (preferred) return preferred;
+  return [...app.mirror.all()].find((row) => row.who !== CONFETTI_WHO) ?? app.mirror.all().next().value;
+}
+
+function resetWalkShapeEditor(): ShapeRow | undefined {
+  const row = chooseWalkShape();
+  if (!row) return undefined;
+  walkShapeId = row.id;
+  walkShapeOrigin = { id: row.id, x: row.x, y: row.y };
+  walkShapePreview = null;
+  walkShapeReset = false;
+  return row;
+}
+
+function walkShapeRow(): ShapeRow | undefined {
+  const base = app.mirror.get(walkShapeId) ?? resetWalkShapeEditor();
+  if (!base) return undefined;
+  if (walkShapePreview?.id !== base.id) return base;
+  const landed = Object.entries(walkShapePreview.patch).every(
+    ([key, value]) => (base as unknown as Record<string, unknown>)[key] === value,
+  );
+  if (landed) {
+    walkShapePreview = null;
+    return base;
+  }
+  return { ...base, ...walkShapePreview.patch };
+}
+
+function queueWalkShapePatch(patch: SetPatch): void {
+  const row = walkShapeRow();
+  if (!row) return;
+  const next = { ...(walkShapePreview?.id === row.id ? walkShapePreview.patch : {}), ...patch, who: YOU };
+  walkShapePreview = { id: row.id, patch: next };
+  extraMuts.push({ op: "set", id: row.id, patch: next });
+  renderWalkShapeEditor();
+}
+
+function renderWalkShapeEditor(): void {
+  if (!walkthroughOpen) return;
+  let row = walkShapeReset ? resetWalkShapeEditor() : walkShapeRow();
+  if (!row) {
+    walkShapeLab.hidden = true;
+    return;
+  }
+  walkShapeLab.hidden = false;
+  if (!walkShapeOrigin || walkShapeOrigin.id !== row.id) {
+    walkShapeOrigin = { id: row.id, x: row.x, y: row.y };
+  }
+
+  const stageWidth = walkShapeStage.clientWidth;
+  const stageHeight = walkShapeStage.clientHeight;
+  if (stageWidth === 0 || stageHeight === 0) return;
+  const width = clampWalk(row.w, 28, stageWidth - WALK_SHAPE_MARGIN * 2);
+  const height = clampWalk(row.h, 28, stageHeight - WALK_SHAPE_MARGIN * 2);
+  const centerX = clampWalk(
+    stageWidth / 2 + row.x - walkShapeOrigin.x,
+    WALK_SHAPE_MARGIN + width / 2,
+    stageWidth - WALK_SHAPE_MARGIN - width / 2,
+  );
+  const centerY = clampWalk(
+    stageHeight / 2 + row.y - walkShapeOrigin.y,
+    WALK_SHAPE_MARGIN + height / 2,
+    stageHeight - WALK_SHAPE_MARGIN - height / 2,
+  );
+
+  walkShapeEl.style.left = `${centerX}px`;
+  walkShapeEl.style.top = `${centerY}px`;
+  walkShapeEl.style.width = `${width}px`;
+  walkShapeEl.style.height = `${height}px`;
+  walkShapeEl.dataset.shapeId = String(row.id);
+  walkShapeFill.dataset.kind = row.kind;
+  walkShapeFill.style.background = HEX.get(row.color) ?? "#888";
+  walkShapeFill.style.transform = `rotate(${row.rot}rad)`;
+  walkShapeMeta.textContent = `#${row.id} · ${row.kind} · ${Math.round(row.w)}×${Math.round(row.h)} · ${row.color}`;
+  walkShapeEl.setAttribute(
+    "aria-label",
+    `Editable ${row.color} ${row.kind} ${row.id}. Drag to move; drag its lower-right corner to resize. ` +
+      "Arrow keys move; Shift plus arrow keys resize.",
+  );
+  for (const swatch of walkShapeSwatches.querySelectorAll<HTMLButtonElement>(".walk-shape-swatch")) {
+    const on = swatch.dataset.color === row.color;
+    swatch.classList.toggle("on", on);
+    swatch.setAttribute("aria-pressed", String(on));
+  }
+}
+
+walkShapeEl.addEventListener("pointerdown", (event) => {
+  const row = walkShapeRow();
+  if (!row) return;
+  event.preventDefault();
+  const shapeRect = walkShapeEl.getBoundingClientRect();
+  const stageRect = walkShapeStage.getBoundingClientRect();
+  const mode =
+    event.clientX >= shapeRect.right - 24 && event.clientY >= shapeRect.bottom - 24 ? "resize" : "move";
+  walkShapeGesture = {
+    pointerId: event.pointerId,
+    mode,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    localX: (shapeRect.left + shapeRect.right) / 2 - stageRect.left,
+    localY: (shapeRect.top + shapeRect.bottom) / 2 - stageRect.top,
+    row,
+  };
+  app.mark(mode === "resize" ? "walkthrough resize" : "walkthrough move");
+  walkShapeEl.classList.add("dragging");
+  try {
+    walkShapeEl.setPointerCapture(event.pointerId);
+  } catch {
+    // Synthetic test pointers have no browser capture target; real pointers do.
+  }
+});
+
+walkShapeEl.addEventListener("pointermove", (event) => {
+  const gesture = walkShapeGesture;
+  if (!gesture || gesture.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  const dx = event.clientX - gesture.clientX;
+  const dy = event.clientY - gesture.clientY;
+  if (gesture.mode === "resize") {
+    queueWalkShapePatch({
+      w: roundWalk(clampWalk(gesture.row.w + dx, 24, walkShapeStage.clientWidth - WALK_SHAPE_MARGIN * 2)),
+      h: roundWalk(clampWalk(gesture.row.h + dy, 24, walkShapeStage.clientHeight - WALK_SHAPE_MARGIN * 2)),
+    });
+    return;
+  }
+
+  const shownWidth = clampWalk(gesture.row.w, 28, walkShapeStage.clientWidth - WALK_SHAPE_MARGIN * 2);
+  const shownHeight = clampWalk(gesture.row.h, 28, walkShapeStage.clientHeight - WALK_SHAPE_MARGIN * 2);
+  const localX = clampWalk(
+    gesture.localX + dx,
+    WALK_SHAPE_MARGIN + shownWidth / 2,
+    walkShapeStage.clientWidth - WALK_SHAPE_MARGIN - shownWidth / 2,
+  );
+  const localY = clampWalk(
+    gesture.localY + dy,
+    WALK_SHAPE_MARGIN + shownHeight / 2,
+    walkShapeStage.clientHeight - WALK_SHAPE_MARGIN - shownHeight / 2,
+  );
+  queueWalkShapePatch({
+    x: roundWalk(gesture.row.x + localX - gesture.localX),
+    y: roundWalk(gesture.row.y + localY - gesture.localY),
+  });
+});
+
+const endWalkShapeGesture = (event: PointerEvent): void => {
+  if (!walkShapeGesture || walkShapeGesture.pointerId !== event.pointerId) return;
+  walkShapeGesture = null;
+  walkShapeEl.classList.remove("dragging");
+};
+walkShapeEl.addEventListener("pointerup", endWalkShapeGesture);
+walkShapeEl.addEventListener("pointercancel", endWalkShapeGesture);
+
+walkShapeEl.addEventListener("keydown", (event) => {
+  const directions: Record<string, [number, number]> = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+  };
+  const direction = directions[event.key];
+  const row = walkShapeRow();
+  if (!direction || !row) return;
+  event.preventDefault();
+  const amount = 10;
+  app.mark(event.shiftKey ? "walkthrough resize" : "walkthrough move", 500);
+  if (event.shiftKey) {
+    queueWalkShapePatch({
+      w: roundWalk(clampWalk(row.w + direction[0] * amount, 24, walkShapeStage.clientWidth - 36)),
+      h: roundWalk(clampWalk(row.h + direction[1] * amount, 24, walkShapeStage.clientHeight - 36)),
+    });
+  } else {
+    queueWalkShapePatch({ x: roundWalk(row.x + direction[0] * amount), y: roundWalk(row.y + direction[1] * amount) });
+  }
+});
+
+walkShapeSwatches.addEventListener("click", (event) => {
+  const swatch = (event.target as HTMLElement).closest<HTMLButtonElement>(".walk-shape-swatch");
+  if (!swatch?.dataset.color) return;
+  app.mark("walkthrough recolor");
+  queueWalkShapePatch({ color: swatch.dataset.color });
+});
 
 const canvas = new CanvasView($<HTMLCanvasElement>("canvas"), {
   // The canvas is no longer one query: it is one per visible cell, merged by z. `app.current`
@@ -1066,7 +1288,12 @@ function frame(now: number): void {
   // so a burst never interleaves two store.write calls.
   const muts = [...canvas.drainMuts(), ...extraMuts];
   extraMuts = [];
-  const botMuts = app.bots.enabled ? app.bots.tick(dt, now, canvas.dragging) : [];
+  // The walkthrough editor promotes its row to YOU in this commit. Exclude it immediately rather
+  // than waiting one frame for that new owner to reach the mirror, or a high-rate robot could
+  // enqueue one last stale move while the visitor is holding it.
+  const botExcludes =
+    walkShapeGesture || walkShapePreview ? new Set([...(canvas.dragging ?? []), walkShapeId]) : canvas.dragging;
+  const botMuts = app.bots.enabled ? app.bots.tick(dt, now, botExcludes) : [];
   if (muts.length > 0) void app.commit(muts);
   // The robots' commit is NOT recorded: ⌘Z is for what your hand did, and a page where undo
   // stepped back through the ambient writers' drift would never reach your own last gesture.
@@ -1126,7 +1353,10 @@ function frame(now: number): void {
     hyd.textContent = p.alwaysHyd ? `hydrated ${fmtMs(live.hydrateMs)}` : "";
   }
 
-  if (walkthroughOpen) renderWalkPaneViews();
+  if (walkthroughOpen) {
+    renderWalkShapeEditor();
+    renderWalkPaneViews();
+  }
 
   drawSpark();
   if (now - lastHud > 200) {

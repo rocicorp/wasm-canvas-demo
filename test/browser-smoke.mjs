@@ -155,6 +155,52 @@ try {
       const cardA11y = recentCard
         ? { role: recentCard.getAttribute('role'), tabIndex: recentCard.tabIndex }
         : null;
+
+      // Step 04 is an interactive proof, not a mock. Recolor and enlarge its real row through
+      // the controls, then verify the already-materialized cards folded the same commit.
+      const editorShape = document.getElementById('walk-edit-shape');
+      const editorId = Number(editorShape?.dataset.shapeId);
+      const editorBefore = app.mirror.get(editorId);
+      const tallyBefore = document.querySelector('[data-walk-pane="tally"] .pbody')?.textContent ?? '';
+      const swatch = [...document.querySelectorAll('.walk-shape-swatch')]
+        .find((button) => button.dataset.color !== editorBefore?.color);
+      swatch?.click();
+      const pointer = (type, x, y, pointerId) => editorShape?.dispatchEvent(new PointerEvent(type, {
+        pointerId, clientX: x, clientY: y, bubbles: true, cancelable: true,
+      }));
+      const beforeResize = editorShape?.getBoundingClientRect();
+      if (beforeResize) {
+        pointer('pointerdown', beforeResize.right - 3, beforeResize.bottom - 3, 71);
+        pointer('pointermove', beforeResize.right + 260, beforeResize.bottom + 100, 71);
+        pointer('pointerup', beforeResize.right + 260, beforeResize.bottom + 100, 71);
+      }
+      const beforeMove = editorShape?.getBoundingClientRect();
+      if (beforeMove) {
+        const x = (beforeMove.left + beforeMove.right) / 2;
+        const y = (beforeMove.top + beforeMove.bottom) / 2;
+        pointer('pointerdown', x, y, 72);
+        pointer('pointermove', x - 10, y, 72);
+        pointer('pointerup', x - 10, y, 72);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+      const editorAfter = app.mirror.get(editorId);
+      const editor = {
+        present: !!editorShape && Number.isFinite(editorId) && !!swatch,
+        changed:
+          editorAfter?.color === swatch?.dataset.color &&
+          editorAfter?.w > (editorBefore?.w ?? Infinity) &&
+          editorAfter?.h > (editorBefore?.h ?? Infinity) &&
+          editorAfter?.x < (editorBefore?.x ?? -Infinity),
+        rowIsYours: editorAfter?.who === 0,
+        tallyChanged:
+          tallyBefore !== (document.querySelector('[data-walk-pane="tally"] .pbody')?.textContent ?? ''),
+        recentUpdated:
+          document.querySelector('[data-walk-pane="recent"] .pbody')?.textContent.includes('#' + editorId) ?? false,
+        enteredLargest:
+          document.querySelector('[data-walk-pane="top"] .pbody')?.textContent.includes('#' + editorId) ?? false,
+        foldedCards: document.querySelectorAll('#walk-fanout .walk-pane-card.fold').length,
+        queryCountHeld: app.queries().length === queryViews.length,
+      };
       const opened = {
         visible: !essay.hidden,
         mode: document.getElementById('app').classList.contains('walk-mode'),
@@ -183,20 +229,19 @@ try {
         bodyInert: document.getElementById('body').inert,
         defaultWalkthrough,
         permalinks:
-          sourceLinks.length === 9 &&
+          sourceLinks.length === 7 &&
           sourceLinks.every((link) => link.hash.startsWith('#L') && link.hash.includes('-L')) &&
           sourceLinks.filter((link) =>
             link.href.includes('/blob/73e0384e5d5b77bb12f7260cd296518876502816/')
-          ).length === 8 &&
+          ).length === 6 &&
           sourceLinks.some((link) => link.href.includes('/blob/main/src/mutators.ts')),
         paneThumbs:
-          paneThumbs.length === 7 &&
+          paneThumbs.length === 6 &&
           paneThumbs.every((thumb) =>
             thumb.querySelector('.panel.walk-pane-card') &&
             !thumb.querySelector('.panel.walk-pane-card[id]')
           ) &&
           !!document.querySelector('[data-walk-pane="recent"] .pbody .row') &&
-          !!document.querySelector('[data-walk-pane="layers"] .pbody .lrow') &&
           [...document.querySelectorAll('[data-walk-pane="recent"] .pbody')].every(
             (body) => body.textContent === document.querySelector('#panel-recent .pbody')?.textContent
           ),
@@ -234,6 +279,7 @@ try {
       document.dispatchEvent(browserHistoryShortcut);
       return {
         ...opened,
+        editor,
         cardA11y,
         cardOpenedCanvas,
         focusedCanvasPane,
@@ -790,6 +836,13 @@ try {
         return old && (old.x !== r.x || old.y !== r.y);
       }).length;
       const stopped = await draw.setBotRate(0, cv.viewport());
+      document.querySelector('[data-view="walkthrough"]').click();
+      for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r));
+      const walkBox = document.getElementById('walk-shape-lab').getBoundingClientRect();
+      const walkStage = document.getElementById('walk-shape-stage').getBoundingClientRect();
+      const walkShape = document.getElementById('walk-edit-shape').getBoundingClientRect();
+      const walkSwatches = [...document.querySelectorAll('.walk-shape-swatch')]
+        .map((el) => el.getBoundingClientRect());
       return {
         innerWidth,
         innerHeight,
@@ -811,6 +864,13 @@ try {
         touchTargets: targetSizes.every((r) => r.width >= 39.5 && r.height >= 39.5),
         touchAction: getComputedStyle(canvas).touchAction,
         noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
+        walkEditor: {
+          contained: walkBox.left >= 0 && walkBox.right <= innerWidth && walkStage.width > 250,
+          shapeTarget: walkShape.width >= 44 && walkShape.height >= 44,
+          colorTargets: walkSwatches.every((r) => r.width >= 39.5 && r.height >= 39.5),
+          noHorizontalOverflow:
+            document.getElementById('walkthrough').scrollWidth <= document.getElementById('walkthrough').clientWidth,
+        },
         livingConfetti: {
           beforeDrop,
           born: lateDrop.awakened,
@@ -853,8 +913,8 @@ try {
   if (!walkthrough.visible || !walkthrough.mode || !walkthrough.closed) {
     fail(`the walkthrough did not open and close cleanly: ${JSON.stringify(walkthrough)}`);
   }
-  if (walkthrough.steps !== 6 || !walkthrough.paired) {
-    fail(`the walkthrough is not six paired code/prose sections: ${JSON.stringify(walkthrough)}`);
+  if (walkthrough.steps !== 5 || !walkthrough.paired) {
+    fail(`the walkthrough is not five paired code/prose sections: ${JSON.stringify(walkthrough)}`);
   }
   if (!walkthrough.highlighted) fail("the walkthrough source was not syntax highlighted");
   if (!walkthrough.clientAPIExamples) fail("the walkthrough is not teaching the @rindle/client API");
@@ -873,6 +933,18 @@ try {
   if (!walkthrough.defaultWalkthrough) fail("an unqualified URL did not open the walkthrough by default");
   if (!walkthrough.permalinks) fail("the walkthrough source links do not target the latest main revision");
   if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");
+  if (!walkthrough.editor?.present || !walkthrough.editor.changed || !walkthrough.editor.rowIsYours) {
+    fail(`the walkthrough shape editor did not edit its real row: ${JSON.stringify(walkthrough.editor)}`);
+  }
+  if (
+    !walkthrough.editor.tallyChanged ||
+    !walkthrough.editor.recentUpdated ||
+    !walkthrough.editor.enteredLargest ||
+    walkthrough.editor.foldedCards < 4
+  ) {
+    fail(`the Step 04 panels did not fold the edited row together: ${JSON.stringify(walkthrough.editor)}`);
+  }
+  if (!walkthrough.editor.queryCountHeld) fail("the walkthrough shape editor registered a new query");
   if (!walkthrough.queryCountHeld) fail("opening the walkthrough registered duplicate queries for its live cards");
   if (!walkthrough.prominentViewSwitch) fail("the canvas/walkthrough switch lost its prominent segmented styling");
   if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
@@ -987,6 +1059,14 @@ try {
     fail(`mobile canvas controls are not touch-sized: ${JSON.stringify(mobile)}`);
   }
   if (!mobile.noHorizontalOverflow) fail(`the mobile page overflows horizontally: ${JSON.stringify(mobile)}`);
+  if (
+    !mobile.walkEditor.contained ||
+    !mobile.walkEditor.shapeTarget ||
+    !mobile.walkEditor.colorTargets ||
+    !mobile.walkEditor.noHorizontalOverflow
+  ) {
+    fail(`the walkthrough shape editor is not usable on mobile: ${JSON.stringify(mobile.walkEditor)}`);
+  }
   if (Math.abs(mobile.backingScale - 3) > 0.02) {
     fail(`the 3x screen did not receive a 3x backing store: ${JSON.stringify(mobile)}`);
   }
