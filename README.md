@@ -39,8 +39,7 @@ at this repo needs no further configuration.
 ## The page is six queries and a canvas made of forty more
 
 The canvas is the sixth-and-a-half: `q.shape.where.c1(<cell>)` × however many cells are on
-screen. Every one of them is checked by the differential like any other query — "check all now"
-sweeps the canvas cell by cell.
+screen. Every one of them is a live subscription, and the visible cells are merged by `z`.
 
 | where you see it | the query |
 |---|---|
@@ -98,8 +97,8 @@ gesture you made, committed through the same `Writer.commit` funnel your hand us
 the page knows undo exists — the canvas's cells, the palette's `GROUP BY`, the layer join's
 counts, the leaderboard, the feed and any pane you wrote yourself all just fold another write.
 Undoing a 512-shape drag is 512 row-writes; undoing a 32,000-row confetti drop is 32,000 removes
-in one commit; and `view-after-undo == fresh-query` needs no new oracle, because it is the same
-contract the differential already checks after every commit.
+in one commit; and `view-after-undo` follows the same live-query contract as every other write,
+without a snapshot or refresh path.
 
 Two details carry it. A step is a **gesture, not a commit** — the page commits once per frame, so
 a drag is sixty commits that fold into one step (first-seen `before`, last-seen `after`, per
@@ -166,8 +165,7 @@ Things to do, in the order they teach:
    `color`, invent a window nothing on the page subscribes — the engine hydrates
    your text as a new pipeline (timed, like every subscription) and folds every write into it
    from then on. `.select("color", "area")` masks the rows to just those columns (plus the
-   primary key, which always rides along), and the pane renders exactly the projection. Its ✓
-   checks it like the others (see below).
+   primary key, which always rides along), and the pane renders exactly the projection.
 
 ## One honesty rule
 
@@ -199,52 +197,26 @@ Writes are coalesced per frame — sixteen pointermoves between two paints commi
 the last position, which is what an app would write, and it keeps writes/s an honest count of
 committed row-writes rather than mouse events. All commits serialize through one writer; two
 in-flight commits would interleave at the `await`, hand the engine a stale `old` row, and
-desynchronize the views — the differential caught exactly that on the browser smoke test's first
+desynchronize the views — the browser smoke test caught exactly that on its first
 run.
 
-## The differential
+## Testing
 
-`view-after-write == fresh-query` is the engine's whole contract. Every built-in query carries an
-independent recompute — plain JS over a plain `Map`, sharing no operator, no index, and no line
-with the engine — the right-hand side of a structural compare against the folded view. A pane
-you write has no hand-written oracle, so its ✓ runs the contract's other from-scratch path:
-subscribe the same text fresh and compare the folded view against the new hydration (fold and
-hydrate are different code paths; the built-ins keep the stronger independent oracle). On the
-page it runs on demand
-only: every panel's ✓ runs its own in front of you, and **check all now** does the whole set and
-prints the wall time. It deliberately does NOT run on a timer during normal use — a from-scratch
-recompute is O(rows), the exact bill the engine exists to avoid, and the contract is already
-enforced after every commit by the headless e2e below.
-
-The same check runs headlessly:
+The unit suite covers the scene, geometry, write coalescing, selection deltas, and undo/redo.
+The browser smoke test builds the bundle and drives the real page through panning, zooming,
+selection, gestures, layer visibility, custom panes, writes, and history. It also verifies that
+the built bundle observes the live wasm heap as rows are added.
 
 ```sh
-npm test          # units + the Node differential e2e
-npm run test:browser  # build, then drive the real page in headless Chromium
+npm test
+npm run test:browser
 ```
 
-`test/differential.e2e.ts` replays a scripted session — a shape walked across the drawing one
-commit at a time, a resize onto the leaderboard, recolors, adds, removes, a rotation, a ⌘D, a
-nudge, robot ticks, a 500-row confetti drop, and then four gestures wound back and forward again
-through undo/redo — and checks **every** live query after **every** commit — the canvas's cells
-included, with a camera on the drawing for the whole session. It pins the invariant the design rests on: **a
-viewport covering the whole drawing produces exactly the rows a fresh whole-drawing query would,
-in the same order**, and a one-cell pan keeps every interior pipeline.
-
-There is deliberately **no whole-drawing subscription** on the page. The global paint query
-survives only as a `QueryDef` — its `recompute` is the differential's independent oracle, plain
-JS over the mirror, run on demand. A live query over every row in an unbounded drawing is the
-exact shape the cell design exists to avoid. The browser smoke drives a real wheel-pan and a zoom
-to the bottom of the ladder and re-checks after each — and drives the multi-select gestures as
-real pointer events (brush a group, drag it as one, shift-click in and out, space-drag to pan),
-which is the only place the gesture machine meets an actual pointer; it is what caught the subscription set
-growing 3× across a hard pan (the grace period bounded time but not travel). The same leg drives
-the selection's real chrome — a corner handle (asserting the opposite corner does not move), the
-rotate handle round a quarter turn, ⌘D, an arrow nudge, ⌘Z and ⇧⌘Z, a two-finger pinch (which
-must zoom and write nothing), and ⇧1 subscribing its four extent queries. It drives the built
-bundle, and also verifies the wasm-heap probe against growth (thousands of rows in, the reading
-must move) so a bundler resolving `pkg/rindle.js` to two module instances fails CI instead of
-silently reporting a wrong number.
+There is deliberately **no whole-drawing subscription** on the page. A live query over every row
+in an unbounded drawing is the exact shape the cell design exists to avoid. The browser smoke
+test instead verifies the observable behavior of the live subscriptions while it drives a real
+wheel-pan, zoom, multi-select gesture, handle resize, rotation, duplicate, nudge, undo/redo,
+pinch, and extent fit.
 
 ## Layout
 
@@ -254,13 +226,13 @@ src/
                relationships, the palette, the world constants
   cell.ts      the spatial columns: c0-c3, the zoom ladder, and a viewport's cell set
   scene.ts     the opening composition + confetti batches, deterministic
-  mirror.ts    the same rows (shapes, layers, selection) in plain JS — recompute base, and every edit's `old` row
-  queries.ts   the queries: Rindle query + independent JS recompute, side by side
+  mirror.ts    app-side rows (shapes, layers, selection), including every edit's `old` row
+  queries.ts   the live Rindle queries
   geom.ts      the selection's geometry — oriented frames, the eight handles, the resize/rotate
                transforms, zoom-to-fit — pure functions over rows, so a gesture is testable
                without a pointer
   history.ts   undo/redo as INVERSE DELTAS, committed like any other write (no snapshots)
-  custom.ts    your panes: query text evaled as the real builder + the fresh-subscription oracle
+  custom.ts    your panes: query text evaled as the real builder
   write.ts     the single write funnel: coalesce → store.write (timed) → mirror, serialized
   bots.ts      the ambient writers: a write-rate dial from a murmur to ~6k row-writes/s
   app.ts       everything above wired together, headless — no DOM, so CI drives the same code;
@@ -269,12 +241,9 @@ src/
   canvas.ts    renderer over query results + the pointer-gesture machine (tldraw's) + the camera
   main.ts      the page: one frame loop, panels, HUD
   metrics.ts   bounded sample rings, sliding rates
-  differential.ts  the structural compare
 test/
-  units.test.ts       scene determinism, recompute orderings, coalescing (selection deltas
-                      included), the differ, the marquee/selection-box geometry, rotation and
-                      the handles' two transforms, and the undo stack's whole behaviour
-  differential.e2e.ts the contract, after every commit of a scripted session, in Node
+  units.test.ts       scene determinism, coalescing (selection deltas included), marquee and
+                      selection-box geometry, rotation, handle transforms, and undo behavior
   browser-smoke.mjs   the built page in real headless Chromium
   cdp.mjs             a dependency-free CDP harness
 ```
@@ -297,5 +266,4 @@ instances fails the smoke test rather than silently reporting a wrong number.
 - **It is not a synced app.** One tab, one engine, no server. The robots are local writers, not
   collaborators. The three-tier (browser IVM + API authority + daemon) story lives in the engine's
   own repo, not here.
-- **It holds the rows twice** — once in wasm, once in the JS mirror the differential needs.
-  That is the price of *checking* the engine, not of using it.
+- **It holds the rows twice** — once in wasm and once in the JS mirror used to build safe writes.

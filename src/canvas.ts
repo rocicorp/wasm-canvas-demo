@@ -164,8 +164,8 @@ export class CanvasView {
    *  specks composite in COLOUR order rather than z order — and both are bounded the same way:
    *  ONLY shapes under ~4 screen pixels are ever in the layer. At that size a speck has no
    *  observable stacking order, so neither approximation can show; anything big enough to show
-   *  one is drawn per frame in its true place in the merge instead. The QUERY result — what the
-   *  differential checks — is exact either way. */
+   *  one is drawn per frame in its true place in the merge instead. The live query result is
+   *  exact either way. */
   private readonly staticPaths: Array<{ color: string; path: Path2D }> = [];
   /** The same paths by colour — what an append looks one up in. `staticPaths` is the paint
    *  order (insertion order, and arbitrary: see the note on colour order above). */
@@ -590,8 +590,7 @@ export class CanvasView {
    *  color, and a recolour owes it exactly as a move does (`main.ts`, the palette). What the
    *  layer is keyed on is which specks it holds and nothing else (`staticPlan`), so a speck
    *  edited while still inside it goes on being painted the way it used to look: right in the
-   *  query, wrong on the glass, and the differential — which checks the query — would say
-   *  nothing. */
+   *  query, wrong on the glass, and the live query would say nothing. */
   private promote(rows: readonly ShapeRow[]): void {
     for (const s of rows) {
       if (s.who === CONFETTI_WHO) this.pending.push({ op: "set", id: s.id, patch: { who: YOU } });

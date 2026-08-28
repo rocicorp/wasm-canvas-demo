@@ -1,6 +1,6 @@
 // The opening scene, generated deterministically — same seed, same drawing, in the page and in
-// every test. Nothing is downloaded and nothing is random between runs: the differential e2e
-// replays the exact scene the page shows.
+// every test. Nothing is downloaded and nothing is random between runs: browser tests replay
+// the exact scene the page shows.
 
 import { CONFETTI_WHO, KINDS, LAYER_BACKDROP, LAYER_CONFETTI, LAYER_DRAWING, PALETTE, WORLD_H, WORLD_W } from "./schema.ts";
 import { cellsOf } from "./cell.ts";

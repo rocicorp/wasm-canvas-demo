@@ -65,7 +65,7 @@ export const layerTable = table("layer")
  *  and never again, so changing the selection is a delta the engine folds instead of a query it
  *  re-registers. (Encoding the selected ids into the query's args is the version of this that
  *  looks reasonable and is not: every change re-hydrates the whole pipeline, which on a marquee
- *  is a fresh subscription per frame.) The modelling one: selection is per-viewer, ephemeral
+ *  is a new subscription per frame.) The modelling one: selection is per-viewer, ephemeral
  *  state, and writing it onto the shared shape row is the shape of a bug in any app with a
  *  second person in it — two collaborators would fight over one column. Here it also keeps
  *  selecting off `shape.updated`, so the feed stays a feed of drawing, not of clicking. */

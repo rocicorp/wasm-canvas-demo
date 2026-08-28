@@ -1,9 +1,7 @@
 // The same rows, in one plain JS Map.
 //
-// The mirror is the "fresh query" half of the differential — every panel query has a
-// hand-written recompute over these rows, and `view-after-write == fresh-query` is checked
-// against it — which is why it must share NOTHING with the engine: no operator, no index, no
-// line of code.
+// The mirror holds the app-side state needed to build writes and track selection. It is kept
+// separate from the engine rows so a commit can provide each edit's previous value reliably.
 //
 // It is also where an edit's `old` row comes from: the engine is told a row's previous state on
 // every `tx.edit`, and a stale `old` is not an edit, it is a corruption — so there is exactly one
@@ -57,8 +55,7 @@ export class Mirror {
     return this.rows.get(id);
   }
 
-  /** Iterate every row. Recomputes scan this directly — the per-query allocation (sorting,
-   *  filtering) is charged to the recompute that does it, not hidden here. */
+  /** Iterate every shape row. */
   all(): IterableIterator<ShapeRow> {
     return this.rows.values();
   }
@@ -93,14 +90,14 @@ export class Mirror {
     return this.layerRows.values();
   }
 
-  /** The recomputes' half of the EXISTS gate: is this shape's layer visible? */
+  /** Whether this shape's layer is visible. */
   visibleLayer(id: number): boolean {
     return (this.layerRows.get(id)?.visible ?? 0) === 1;
   }
 
   // -- selection --------------------------------------------------------------------------------
 
-  /** The recomputes' half of the OTHER exists gate: is this shape selected? */
+  /** Whether this shape is selected. */
   isSelected(id: number): boolean {
     return this.selectedIds.has(id);
   }
