@@ -82,6 +82,7 @@ body {
 /* frame */
 #app {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -838,6 +839,10 @@ body {
   height: 100%;
   display: block;
   touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .floating {
@@ -1429,4 +1434,91 @@ button.ghost:hover {
 }
 .warn {
   color: var(--warn);
+}
+
+/* Phone canvas -------------------------------------------------------------------------------
+   The desktop rail is intentionally absent here. At 342px it used to consume nearly the whole
+   viewport, leaving the actual canvas a sliver while every floating control piled on top of it.
+   The walkthrough still exposes the query panes; the interactive view gives the glass to the
+   drawing and keeps only controls that are useful while touching it. */
+@media (max-width: 760px) {
+  #topbar {
+    padding-left: max(9px, env(safe-area-inset-left));
+    padding-right: max(9px, env(safe-area-inset-right));
+  }
+  #app:not(.walk-mode) .brand,
+  #app:not(.walk-mode) .hudchips {
+    display: none;
+  }
+  #app:not(.walk-mode) #viewtabs {
+    margin-inline: auto;
+  }
+
+  #rail,
+  #canvasq,
+  #hud-fold,
+  #foot {
+    display: none;
+  }
+  #body,
+  #stage {
+    width: 100%;
+  }
+
+  .actions {
+    top: 8px;
+    right: max(8px, env(safe-area-inset-right));
+    left: max(8px, env(safe-area-inset-left));
+    justify-content: center;
+  }
+  .actions .sep {
+    display: none;
+  }
+  #tools {
+    top: auto;
+    right: auto;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 10px;
+    background: rgba(15, 19, 34, 0.88);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+    backdrop-filter: blur(10px);
+  }
+  #tools button,
+  .actions button {
+    display: inline-flex;
+    min-width: 40px;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    font-size: 12px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .actions .hbtn {
+    padding: 0 7px;
+  }
+  .statusline {
+    top: 56px;
+    right: max(8px, env(safe-area-inset-right));
+    bottom: auto;
+    left: max(8px, env(safe-area-inset-left));
+    max-width: none;
+    overflow: hidden;
+    pointer-events: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 360px) {
+  .actions {
+    gap: 4px;
+  }
+  .actions #bots {
+    display: none;
+  }
 }
