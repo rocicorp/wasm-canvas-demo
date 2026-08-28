@@ -725,25 +725,31 @@ body {
   outline: 2px solid var(--walk-mint);
   outline-offset: 3px;
 }
+.walk-fanout-demo {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
 .walk-pane-gallery {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 14px 12px;
   margin-top: 28px;
 }
 .walk-pane-gallery .walk-pane-ref {
-  display: flex;
-  flex-direction: column;
   margin-top: 0;
 }
 .walk-pane-gallery .walk-pane-frame {
-  flex: 1;
-  min-height: 184px;
+  min-height: 0;
+}
+.walk-pane-gallery .walk-pane-ref figcaption,
+.walk-pane-gallery .code,
+.walk-pane-gallery .prow {
+  display: none;
 }
 .walk-pane-gallery .walk-pane-card {
   overflow: visible;
 }
-.walk-pane-gallery .code,
 .walk-pane-gallery .pbody {
   max-height: none;
   overflow: visible;
@@ -751,6 +757,51 @@ body {
 .walk-pane-gallery .note,
 .walk-pane-gallery .delta {
   display: none;
+}
+.walk-pane-gallery [data-walk-pane="recent"] .pbody .row:nth-child(n + 5) {
+  display: none;
+}
+.walk-pane-gallery [data-walk-pane="tally"] .chips .chip.on {
+  border-color: var(--panel-edge);
+}
+
+@media (min-width: 1100px) {
+  .walk-fanout-demo {
+    display: grid;
+    grid-template-areas:
+      "selection lab tally"
+      "top lab recent";
+    grid-template-columns: minmax(190px, 1fr) minmax(500px, 2.6fr) minmax(190px, 1fr);
+    align-items: start;
+    gap: 16px 18px;
+    margin-top: 6px;
+  }
+  .walk-fanout-demo .walk-shape-lab {
+    grid-area: lab;
+    margin-top: 0;
+  }
+  .walk-fanout-demo .walk-pane-gallery {
+    display: contents;
+  }
+  .walk-fanout-demo .walk-pane-ref:nth-child(1) {
+    grid-area: selection;
+  }
+  .walk-fanout-demo .walk-pane-ref:nth-child(2) {
+    grid-area: tally;
+  }
+  .walk-fanout-demo .walk-pane-ref:nth-child(3) {
+    grid-area: top;
+  }
+  .walk-fanout-demo .walk-pane-ref:nth-child(4) {
+    grid-area: recent;
+  }
+  .walk-fanout-demo [data-walk-pane="selection"] .fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .walk-fanout-demo [data-walk-pane="top"] .row .dim,
+  .walk-fanout-demo [data-walk-pane="recent"] .row .num {
+    display: none;
+  }
 }
 .walk-end {
   max-width: 820px;

@@ -347,9 +347,34 @@ try {
               .map((el) =>
                 el.tagName.toLowerCase() + '.' + el.className + ':' +
                 Math.ceil(el.getBoundingClientRect().right - frameBox.right)
-              ),
+            ),
           };
         }),
+        fanoutOrder:
+          [...document.querySelectorAll('#walk-fanout .walk-pane-frame')]
+            .map((frame) => frame.dataset.walkPane)
+            .join(',') === 'selection,tally,top,recent',
+        fanoutRecentRows:
+          [...document.querySelectorAll('#walk-fanout [data-walk-pane="recent"] .pbody .row')]
+            .filter((row) => getComputedStyle(row).display !== 'none').length,
+        fanoutPaletteNeutral: (() => {
+          const active = document.querySelector('#walk-fanout [data-walk-pane="tally"] .chip.on');
+          const inactive = document.querySelector('#walk-fanout [data-walk-pane="tally"] .chip:not(.on)');
+          return !!active && !!inactive && getComputedStyle(active).borderColor === getComputedStyle(inactive).borderColor;
+        })(),
+        fanoutFlanksEditor: (() => {
+          const lab = document.getElementById('walk-shape-lab').getBoundingClientRect();
+          const selection = document.querySelector('#walk-fanout [data-walk-pane="selection"]').getBoundingClientRect();
+          const palette = document.querySelector('#walk-fanout [data-walk-pane="tally"]').getBoundingClientRect();
+          const hiddenQuery = document.querySelector('#walk-fanout .walk-pane-card .code');
+          return (
+            selection.right < lab.left &&
+            lab.right < palette.left &&
+            selection.top < lab.bottom &&
+            palette.top < lab.bottom &&
+            getComputedStyle(hiddenQuery).display === 'none'
+          );
+        })(),
         queryCountHeld: app.queries().length === queryViews.length,
         prominentViewSwitch:
           viewSwitch.height >= 34 &&
@@ -1049,6 +1074,12 @@ try {
     )
   ) {
     fail(`the Step 04 live cards clip their query or result content: ${JSON.stringify(walkthrough.fanoutCardSizes)}`);
+  }
+  if (!walkthrough.fanoutOrder || walkthrough.fanoutRecentRows !== 4 || !walkthrough.fanoutPaletteNeutral) {
+    fail(`the Step 04 cards lost their compact preview treatment: ${JSON.stringify(walkthrough)}`);
+  }
+  if (!walkthrough.fanoutFlanksEditor) {
+    fail(`Selection and Palette do not flank the Step 04 editor: ${JSON.stringify(walkthrough)}`);
   }
   if (
     !walkthrough.editor?.present ||
