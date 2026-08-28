@@ -134,6 +134,10 @@ export class CanvasView {
   private readonly el: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly hooks: CanvasHooks;
+  /** Backing-store pixels per CSS pixel. The camera itself deliberately stays in CSS pixels:
+   *  zoom levels, hit targets and selection chrome are visual sizes, and must not become three
+   *  times smaller just because a phone has a 3x screen. */
+  private dpr = 1;
   private scale = 1;
   private ox = 0;
   private oy = 0;
@@ -220,6 +224,8 @@ export class CanvasView {
       if (this.gesture.t === "none") this.el.style.cursor = "default";
     });
     new ResizeObserver(() => this.fit()).observe(el);
+    // Moving a window between screens can change DPR without changing the canvas's CSS box.
+    window.addEventListener("resize", () => this.fit());
     this.fit();
   }
 
@@ -247,7 +253,14 @@ export class CanvasView {
     const h = this.el.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    ctx.setTransform(this.scale, 0, 0, this.scale, this.ox, this.oy);
+    ctx.setTransform(
+      this.scale * this.dpr,
+      0,
+      0,
+      this.scale * this.dpr,
+      this.ox * this.dpr,
+      this.oy * this.dpr,
+    );
 
     // Dot grid — quiet, and on an unbounded canvas it is the only thing that says you moved.
     // The spacing doubles as you zoom out so the dots stay about the same distance apart on
@@ -606,13 +619,12 @@ export class CanvasView {
   private wheel(e: WheelEvent): void {
     e.preventDefault();
     const box = this.el.getBoundingClientRect();
-    const dpr = this.el.width / box.width;
     const { dx, dy } = wheelPixels(e, box.height);
     if (e.ctrlKey || e.metaKey) {
       const step = clamp(dy, -MAX_ZOOM_STEP_PX, MAX_ZOOM_STEP_PX);
       this.zoomAt(Math.exp(-step * ZOOM_PER_PX), e.clientX, e.clientY);
     } else {
-      this.panBy(-dx * dpr, -dy * dpr);
+      this.panBy(-dx, -dy);
     }
   }
 
@@ -629,10 +641,8 @@ export class CanvasView {
         // so the zoom's anchor is the midpoint you are actually holding.
         const now = this.pinchFrom();
         if (now.dist <= 0 || g.dist <= 0) return;
-        const box = this.el.getBoundingClientRect();
-        const dpr = this.el.width / box.width;
         this.zoomAt(now.dist / g.dist, g.mx, g.my);
-        this.panBy((now.mx - g.mx) * dpr, (now.my - g.my) * dpr);
+        this.panBy(now.mx - g.mx, now.my - g.my);
         this.gesture = now;
         return;
       }
@@ -640,9 +650,7 @@ export class CanvasView {
         this.hover(p);
         return;
       case "pan": {
-        const box = this.el.getBoundingClientRect();
-        const dpr = this.el.width / box.width;
-        this.panBy((e.clientX - g.sx) * dpr, (e.clientY - g.sy) * dpr);
+        this.panBy(e.clientX - g.sx, e.clientY - g.sy);
         this.gesture = { t: "pan", sx: e.clientX, sy: e.clientY };
         return;
       }
@@ -762,17 +770,22 @@ export class CanvasView {
   /** Resize the backing store. The camera SURVIVES a resize — on an unbounded canvas there is
    *  nothing to re-fit to — except the very first call, which places it over the opening scene. */
   private fit(): void {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
     const cw = this.el.clientWidth;
     const ch = this.el.clientHeight;
     if (cw === 0 || ch === 0) return;
-    this.el.width = Math.round(cw * dpr);
-    this.el.height = Math.round(ch * dpr);
+    const bw = Math.round(cw * dpr);
+    const bh = Math.round(ch * dpr);
+    this.dpr = dpr;
+    // Setting width or height clears the bitmap and resets context state. Only do it when the
+    // backing store actually changed; ResizeObserver is allowed to report the same box again.
+    if (this.el.width !== bw) this.el.width = bw;
+    if (this.el.height !== bh) this.el.height = bh;
     if (!this.placed) {
       this.placed = true;
-      this.scale = Math.min(this.el.width / WORLD_W, this.el.height / WORLD_H);
-      this.ox = (this.el.width - WORLD_W * this.scale) / 2;
-      this.oy = (this.el.height - WORLD_H * this.scale) / 2;
+      this.scale = Math.min(cw / WORLD_W, ch / WORLD_H);
+      this.ox = (cw - WORLD_W * this.scale) / 2;
+      this.oy = (ch - WORLD_H * this.scale) / 2;
     }
   }
 
@@ -788,8 +801,8 @@ export class CanvasView {
     return {
       x0: -this.ox / this.scale,
       y0: -this.oy / this.scale,
-      x1: (this.el.width - this.ox) / this.scale,
-      y1: (this.el.height - this.oy) / this.scale,
+      x1: (this.el.clientWidth - this.ox) / this.scale,
+      y1: (this.el.clientHeight - this.oy) / this.scale,
     };
   }
 
@@ -803,7 +816,7 @@ export class CanvasView {
    *  and ⇧2 (the selection). The arithmetic is `fitView` in `geom.ts`, so the camera the page
    *  lands on is unit-tested; this only installs it. */
   zoomToRect(r: Rect): void {
-    const fit = fitView(r, this.el.width, this.el.height, 48 * (window.devicePixelRatio || 1), MIN_ZOOM, MAX_ZOOM);
+    const fit = fitView(r, this.el.clientWidth, this.el.clientHeight, 48, MIN_ZOOM, MAX_ZOOM);
     this.scale = fit.scale;
     this.ox = fit.ox;
     this.oy = fit.oy;
@@ -812,9 +825,8 @@ export class CanvasView {
   /** Zoom about a point in CLIENT coordinates, keeping that point pinned under the cursor. */
   zoomAt(factor: number, clientX: number, clientY: number): void {
     const box = this.el.getBoundingClientRect();
-    const dpr = this.el.width / box.width;
-    const sx = (clientX - box.left) * dpr;
-    const sy = (clientY - box.top) * dpr;
+    const sx = clientX - box.left;
+    const sy = clientY - box.top;
     const next = clamp(this.scale * factor, MIN_ZOOM, MAX_ZOOM);
     if (next === this.scale) return;
     // Keep the world point under the cursor fixed: solve for the offset that does it.
@@ -825,10 +837,9 @@ export class CanvasView {
 
   private toWorld(e: PointerEvent): { x: number; y: number } {
     const box = this.el.getBoundingClientRect();
-    const dpr = this.el.width / box.width;
     return {
-      x: ((e.clientX - box.left) * dpr - this.ox) / this.scale,
-      y: ((e.clientY - box.top) * dpr - this.oy) / this.scale,
+      x: (e.clientX - box.left - this.ox) / this.scale,
+      y: (e.clientY - box.top - this.oy) / this.scale,
     };
   }
 }

@@ -743,6 +743,59 @@ try {
     })()
   `);
 
+  // A phone is a different rendering surface, not a narrow desktop. Give it a 3x backing store
+  // and reload so the opening camera is placed at that size. The camera must still speak CSS
+  // pixels: DPR belongs only to raster sharpness, never to zoom levels or hit-target sizes.
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 3,
+    mobile: true,
+  });
+  await cdp.navigate(`${url}?mobile=1#canvas`);
+  if (!(await cdp.waitFor("globalThis.rindleDraw && globalThis.rindleDraw.ready", 60_000))) {
+    throw new Error("the mobile demo did not boot within 60 s");
+  }
+  const mobile = await cdp.eval(`
+    (async () => {
+      for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r));
+      const cv = globalThis.rindleCanvas;
+      const canvas = document.getElementById('canvas');
+      const app = document.getElementById('app').getBoundingClientRect();
+      const stage = document.getElementById('stage').getBoundingClientRect();
+      const box = canvas.getBoundingClientRect();
+      const actions = document.querySelector('.actions').getBoundingClientRect();
+      const tools = document.getElementById('tools').getBoundingClientRect();
+      const status = document.getElementById('status').getBoundingClientRect();
+      const view = cv.viewport();
+      const targetSizes = [...document.querySelectorAll('#tools button, .actions button')]
+        .filter((el) => getComputedStyle(el).display !== 'none')
+        .map((el) => el.getBoundingClientRect());
+      return {
+        innerWidth,
+        innerHeight,
+        appHeight: app.height,
+        stageWidth: stage.width,
+        canvasWidth: box.width,
+        canvasHeight: box.height,
+        backingScale: canvas.width / box.width,
+        zoom: cv.zoom,
+        cssZoom: box.width / (view.x1 - view.x0),
+        railDisplay: getComputedStyle(document.getElementById('rail')).display,
+        queryDisplay: getComputedStyle(document.getElementById('canvasq')).display,
+        footerDisplay: getComputedStyle(document.getElementById('foot')).display,
+        actionsContained: actions.left >= stage.left && actions.right <= stage.right,
+        toolsContained: tools.left >= stage.left && tools.right <= stage.right && tools.bottom <= stage.bottom,
+        controlsSeparated:
+          actions.bottom < tools.top &&
+          (status.height === 0 || (actions.bottom < status.top && status.bottom < tools.top)),
+        touchTargets: targetSizes.every((r) => r.width >= 39.5 && r.height >= 39.5),
+        touchAction: getComputedStyle(canvas).touchAction,
+        noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
+      };
+    })()
+  `);
+
   process.stdout.write(
     `  ${report.rows} rows · wasm heap ${fmtMB(report.heapBefore)} → ${fmtMB(report.heapAfter)}\n` +
       `  write→visible p50 ${report.writeVisibleP50.toFixed(2)} ms\n` +
@@ -757,7 +810,9 @@ try {
       `pinch ×${gestures.pinch.zoomed.toFixed(2)}, ⇧1 subscribed ${gestures.fit.newQueries} extent queries\n` +
       `  confetti layer: ${layer.commits} batches appended ${layer.traced} specks in ` +
       `${layer.appends} appends / ${layer.rebuilds} re-traces into a layer holding ${layer.held}\n` +
-      `  one drop at a time: 3 presses landed ${drop.landed} rows (one drop is ${drop.want})\n`,
+      `  one drop at a time: 3 presses landed ${drop.landed} rows (one drop is ${drop.want})\n` +
+      `  mobile: ${mobile.canvasWidth}×${mobile.canvasHeight} CSS px at ${mobile.backingScale.toFixed(1)}x DPR, ` +
+      `zoom ${mobile.zoom.toFixed(3)}\n`,
   );
 
   if (!(report.rows > 4200)) fail(`expected the seeded scene plus 4,000 confetti, got ${report.rows} rows`);
@@ -883,6 +938,33 @@ try {
     fail(`zooming out did not step the cell level (${report.levelBeforeZoom} → ${report.levelAfterZoom})`);
   }
   if (!/shapes/.test(report.hudText)) fail(`the HUD did not render: ${JSON.stringify(report.hudText)}`);
+
+  // -- mobile layout & high-DPI rendering ------------------------------------------------------
+  if (mobile.innerWidth !== 390 || Math.abs(mobile.appHeight - mobile.innerHeight) > 1) {
+    fail(`the app did not fit the dynamic mobile viewport: ${JSON.stringify(mobile)}`);
+  }
+  if (mobile.canvasWidth < mobile.innerWidth - 1 || mobile.stageWidth < mobile.innerWidth - 1) {
+    fail(`the desktop rail still squeezed the mobile canvas: ${JSON.stringify(mobile)}`);
+  }
+  if (mobile.canvasHeight < mobile.innerHeight - 56) {
+    fail(`the mobile canvas lost vertical drawing space: ${JSON.stringify(mobile)}`);
+  }
+  if (mobile.railDisplay !== "none" || mobile.queryDisplay !== "none" || mobile.footerDisplay !== "none") {
+    fail(`desktop diagnostics are still covering the mobile canvas: ${JSON.stringify(mobile)}`);
+  }
+  if (!mobile.actionsContained || !mobile.toolsContained || !mobile.controlsSeparated) {
+    fail(`mobile controls overlap or leave the canvas: ${JSON.stringify(mobile)}`);
+  }
+  if (!mobile.touchTargets || mobile.touchAction !== "none") {
+    fail(`mobile canvas controls are not touch-sized: ${JSON.stringify(mobile)}`);
+  }
+  if (!mobile.noHorizontalOverflow) fail(`the mobile page overflows horizontally: ${JSON.stringify(mobile)}`);
+  if (Math.abs(mobile.backingScale - 3) > 0.02) {
+    fail(`the 3x screen did not receive a 3x backing store: ${JSON.stringify(mobile)}`);
+  }
+  if (Math.abs(mobile.zoom - mobile.cssZoom) > 0.001) {
+    fail(`DPR leaked into camera zoom (${mobile.zoom} vs CSS ${mobile.cssZoom})`);
+  }
 
   // -- the confetti layer's cache ---------------------------------------------------------------
   if (layer.commits < 2) fail(`the drop did not batch (${layer.commits} commits) — nothing to append`);
