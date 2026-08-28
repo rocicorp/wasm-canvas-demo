@@ -703,6 +703,11 @@ function whoName(who: number): string {
   return who === YOU ? "you" : who === 9 ? "confetti" : `robot ${who}`;
 }
 
+function rotationDegrees(radians: number): string {
+  const degrees = ((Math.round((radians * 180) / Math.PI) % 360) + 360) % 360;
+  return `${degrees}°`;
+}
+
 // selection — an EXISTS over the `selection` table, registered once at boot. Selecting writes a
 // row; this view folds it. The query text never changes, which is the point.
 const selPanel = panel(
@@ -745,6 +750,7 @@ const selPanel = panel(
       field("y", String(Math.round(s.y))) +
       field("w", String(Math.round(s.w))) +
       field("h", String(Math.round(s.h))) +
+      field("rotation", rotationDegrees(s.rot)) +
       field("area", fmtInt(s.area)) +
       field("z", String(s.z)) +
       field("updated", `t${s.updated}`) +

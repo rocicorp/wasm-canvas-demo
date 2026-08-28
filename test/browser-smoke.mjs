@@ -205,6 +205,11 @@ try {
 
       await settleEditor();
       const initiallySelected = app.selected.has(editorId) && selectionShowsRow();
+      const rotationLabel = [...document.querySelectorAll('#walk-fanout [data-walk-pane="selection"] .f label')]
+        .find((label) => label.textContent === 'rotation');
+      const expectedRotation =
+        ((Math.round(((editorBefore?.rot ?? 0) * 180) / Math.PI) % 360) + 360) % 360 + '°';
+      const rotationShown = rotationLabel?.closest('.f')?.querySelector('b')?.textContent === expectedRotation;
       const initialView = walkCanvas.viewport();
       const emptyX = initialView.x0 + 4 / walkCanvas.zoom;
       const emptyY = initialView.y0 + 4 / walkCanvas.zoom;
@@ -300,6 +305,7 @@ try {
         wantedColor: swatch?.dataset.color,
         sharedCanvas: walkCanvas?.constructor === globalThis.rindleCanvas?.constructor,
         initiallySelected,
+        rotationShown,
         deselected,
         reselected,
         cameraLocked,
@@ -1137,6 +1143,7 @@ try {
     !walkthrough.editor?.present ||
     !walkthrough.editor.sharedCanvas ||
     !walkthrough.editor.initiallySelected ||
+    !walkthrough.editor.rotationShown ||
     !walkthrough.editor.deselected ||
     !walkthrough.editor.reselected ||
     !walkthrough.editor.deselectedAgain ||
