@@ -26,7 +26,7 @@ import { History } from "../src/history.ts";
 import { Bots, ROAM } from "../src/bots.ts";
 import { CELL0, LEVELS, cellAt, cellCol, cellSize, cellsForView, cellsOf, levelForZoom } from "../src/cell.ts";
 import { Mirror, type ShapeRow } from "../src/mirror.ts";
-import { confetti, initialScene } from "../src/scene.ts";
+import { CONFETTI_PER_SCENE, confetti, confettiArea, initialScene } from "../src/scene.ts";
 import { CONFETTI_WHO, LAYERS, PALETTE, WORLD_H, WORLD_W } from "../src/schema.ts";
 import { Writer, type Mut } from "../src/write.ts";
 import type { DrawStore } from "../src/engine.ts";
@@ -265,6 +265,53 @@ test("selecting writes only what CROSSED in or out — the property a marquee li
   await writer.commit([{ op: "remove", id: 1 }]);
   assert.deepEqual(log[0].selRemoves, [1], "the delete dropped the selection row too");
   assert.equal(mirror.isSelected(1), false);
+});
+
+test("a drop keeps a world-space density: far-out views contain it and close-ups let it overflow", () => {
+  const closeView = { x0: 200, y0: 100, x1: 1000, y1: 600 }; // 800 x 500, centred on (600, 350)
+  const centre = (r: { x0: number; y0: number; x1: number; y1: number }) => [
+    (r.x0 + r.x1) / 2,
+    (r.y0 + r.y1) / 2,
+  ];
+
+  // A close-up cannot hold even the first press at the chosen density, so its 800 x 500 viewport
+  // grows to one 1600 x 1000 scene. Sixteen times the rows needs sixteen times that world area.
+  const first = confettiArea(closeView, CONFETTI_PER_SCENE);
+  assert.equal(first.x1 - first.x0, WORLD_W);
+  assert.equal(first.y1 - first.y0, WORLD_H);
+  assert.deepEqual(centre(first), centre(closeView), "the scatter box stays on the camera");
+  assert.deepEqual(confettiArea(closeView, 10), first, "small jobs retain the baseline footprint");
+
+  const big = confettiArea(closeView, 16 * CONFETTI_PER_SCENE);
+  assert.equal(big.x1 - big.x0, WORLD_W * 4, "16x the rows needs 4x the width");
+  assert.equal(big.y1 - big.y0, WORLD_H * 4, "...and 4x the height");
+
+  // A far-out camera already has enough world area even for the largest press. Its viewport is
+  // the scatter box, so every generated speck stays on screen instead of spreading farther out.
+  const farView = { x0: -5600, y0: -3650, x1: 7200, y1: 4350 }; // 12800 x 8000
+  const farArea = confettiArea(farView, 32_000);
+  assert.deepEqual(farArea, farView);
+  const farRows = confetti(32_000, 3, 1, 1, 1, farArea);
+  assert.ok(farRows.every((r) => r.x >= farView.x0 && r.x <= farView.x1));
+  assert.ok(farRows.every((r) => r.y >= farView.y0 && r.y <= farView.y1));
+
+  // At a fixed close-up, increasing the job grows its world box with the job. The visible count
+  // therefore remains roughly constant instead of all 32,000 rows becoming one dense screen.
+  for (const n of [CONFETTI_PER_SCENE, 8000, 32_000]) {
+    const area = confettiArea(closeView, n);
+    const inView = confetti(n, 3, 1, 1, 1, area).filter(
+      (r) => r.x >= closeView.x0 && r.x <= closeView.x1 && r.y >= closeView.y0 && r.y <= closeView.y1,
+    ).length;
+    assert.ok(inView > 350 && inView < 650, `a ${n}-row close-up showed ${inView} specks, expected about 500`);
+  }
+
+  // Every speck lands inside the box it was given, wherever that box is — including a viewport
+  // panned off the opening scene into negative world space.
+  const away = confettiArea({ x0: -4000, y0: -3000, x1: -3000, y1: -2400 }, 32_000);
+  for (const r of confetti(500, 11, 1, 1, 1, away)) {
+    assert.ok(r.x >= away.x0 && r.x <= away.x1, `#${r.id} scattered outside the drop at x=${r.x}`);
+    assert.ok(r.y >= away.y0 && r.y <= away.y1, `#${r.id} scattered outside the drop at y=${r.y}`);
+  }
 });
 
 // ---------------------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 
 import { CONFETTI_WHO, KINDS, LAYER_BACKDROP, LAYER_CONFETTI, LAYER_DRAWING, PALETTE, WORLD_H, WORLD_W } from "./schema.ts";
 import { cellsOf } from "./cell.ts";
-import { normAngle } from "./geom.ts";
+import { normAngle, type Rect } from "./geom.ts";
 import type { ShapeRow } from "./mirror.ts";
 
 /** mulberry32 — a tiny deterministic PRNG; good enough to lay out a drawing. */
@@ -106,20 +106,48 @@ export function initialScene(): ShapeRow[] {
   return rows;
 }
 
+/** The world-space density of a drop: this many specks fit in the opening scene's area before
+ *  the scatter box has to grow. Keeping this density in WORLD units is what makes zoom matter:
+ *  a far-out viewport can hold the whole box, while a close-up viewport only sees part of it. */
+export const CONFETTI_PER_SCENE = 2000;
+
+/** Where a drop of `n` specks scatters, given the rect it was aimed at (the camera's viewport).
+ *
+ *  The minimum scatter area is `n / CONFETTI_PER_SCENE` opening scenes. If the viewport is
+ *  already that large (because the camera is far out), use it verbatim and keep every speck on
+ *  screen. If the viewport is smaller (because the camera is close in), enlarge it uniformly
+ *  about its centre until it reaches that area. Uniform growth preserves the viewport's aspect
+ *  ratio and makes the overflow equally discoverable in every direction.
+ *
+ *  This deliberately does not scale by a fixed multiple OF the viewport. That inverted the
+ *  intended behaviour: a large, zoomed-out viewport got an enormous scatter box while a tiny,
+ *  zoomed-in viewport still got a tiny one. */
+export function confettiArea(view: Rect, n: number): Rect {
+  const width = Math.max(1, view.x1 - view.x0);
+  const height = Math.max(1, view.y1 - view.y0);
+  const minArea = (WORLD_W * WORLD_H * Math.max(CONFETTI_PER_SCENE, n)) / CONFETTI_PER_SCENE;
+  const scale = Math.max(1, Math.sqrt(minArea / (width * height)));
+  const cx = (view.x0 + view.x1) / 2;
+  const cy = (view.y0 + view.y1) / 2;
+  const hw = (width * scale) / 2;
+  const hh = (height * scale) / 2;
+  return { x0: cx - hw, y0: cy - hh, x1: cx + hw, y1: cy + hh };
+}
+
 /** A batch of small inert shapes ("+2,000 shapes"). `who = 9`: the robots never touch them, so
  *  piling them on prices the QUERIES over a bigger base, not a busier workload.
  *
- *  `area` is where they land. The page passes the CAMERA's current viewport, so a drop fills the
- *  space you are looking at and panning finds the next pile rather than empty canvas — on an
- *  unbounded canvas, scattering into a fixed box would put most of the base off screen forever.
- *  It defaults to the opening scene's extent so the headless tests stay deterministic. */
+ *  `area` is where they land — sized by {@link confettiArea} when the page aims the drop, because
+ *  the caller knows the size of the whole JOB and a batch only knows its own share. It can be the
+ *  viewport itself or a larger box around it, and every batch in one drop uses the same box. It
+ *  defaults to the opening scene's extent so the headless tests stay deterministic. */
 export function confetti(
   n: number,
   seed: number,
   firstId: number,
   firstZ: number,
   firstUpdated: number,
-  area: { x0: number; y0: number; x1: number; y1: number } = { x0: 0, y0: 0, x1: WORLD_W, y1: WORLD_H },
+  area: Rect = { x0: 0, y0: 0, x1: WORLD_W, y1: WORLD_H },
 ): ShapeRow[] {
   const r = rng(seed);
   const rows: ShapeRow[] = [];

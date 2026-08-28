@@ -141,7 +141,11 @@ Things to do, in the order they teach:
    grows, which is the claim the demo is here to make. Committing the whole pile at once is the
    one move on this page that would make an incremental engine behave like a batch one. The drop
    lands in the space you are **looking at**, so pan somewhere empty and fill it — on an
-   unbounded canvas a fixed scatter box would put most of the base off screen forever.
+   unbounded canvas a fixed scatter box would put most of the base off screen forever. The drop
+   keeps a world-space density: when you are zoomed far enough out, the whole pile fits inside
+   the current viewport; when you are close in, the scatter box extends evenly past the viewport
+   so the visible portion does not become a dense soup. The box stays centred on the place you
+   are looking at, and panning reveals the overflow.
 6. **Hide the confetti layer** (the eye in the layers panel). ONE row-write on `layer` — and
    every gated view sheds tens of thousands of rows in the same commit, because the `exists`
    join fans that single edit out. Show it again: same single write, the other direction. This
