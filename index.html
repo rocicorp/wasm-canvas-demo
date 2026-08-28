@@ -209,8 +209,9 @@ const largest = q.shape
 const recent = q.shape
   .orderBy("updated", "desc").limit(8);
 
-const cell = q.shape
-  .where.c1(cellId).orderBy("z", "asc");</pre>
+const selected = q.shape
+  .where(exists(onSelection))
+  .orderBy("z", "asc");</pre>
                 <div class="walk-code-foot">
                   <span>demo implementation</span>
                   <span class="walk-source-links">
@@ -223,8 +224,8 @@ const cell = q.shape
                 <h2>Change a row. Every impacted view updates.</h2>
                 <p>
                   Recoloring moves a count between palette groups. Resizing can reseat the
-                  leaderboard. Any edit moves the shape to the top of the feed. Dragging across a
-                  cell boundary removes it from one canvas query and inserts it into its neighbor.
+                  leaderboard. Any edit moves the shape to the top of the feed. Selecting or
+                  deselecting changes the selection view without changing its query.
                 </p>
                 <p>
                   These are not four update handlers. They are four declarations. Edit the live
@@ -239,16 +240,12 @@ const cell = q.shape
                     </div>
                   </div>
                   <div class="walk-shape-stage" id="walk-shape-stage">
-                    <button
-                      class="walk-edit-shape"
-                      id="walk-edit-shape"
-                      type="button"
-                      aria-label="Editable shape. Drag to move; drag its lower-right corner to resize. Arrow keys move; Shift plus arrow keys resize."
-                    >
-                      <span class="walk-edit-fill"></span>
-                      <span class="walk-edit-handle" aria-hidden="true"></span>
-                    </button>
-                    <span class="walk-shape-stage-hint">drag to move · pull the corner to resize</span>
+                    <canvas
+                      class="walk-shape-canvas"
+                      id="walk-shape-canvas"
+                      aria-label="Mini canvas. Click the shape to select it, click empty space to deselect it, and use the selection handles to edit it."
+                    ></canvas>
+                    <span class="walk-shape-stage-hint">click empty space to deselect · same controls as the canvas</span>
                   </div>
                   <div class="walk-shape-colors">
                     <span>recolor</span>
@@ -269,8 +266,8 @@ const cell = q.shape
                     <div class="walk-pane-frame" data-walk-pane="recent" role="img" aria-label="Thumbnail of the recent writes pane"></div>
                   </figure>
                   <figure class="walk-pane-ref">
-                    <figcaption><span>Live from the demo</span><b>Viewport</b></figcaption>
-                    <div class="walk-pane-frame" data-walk-pane="viewport" role="img" aria-label="Thumbnail of the viewport pane"></div>
+                    <figcaption><span>Live from the demo</span><b>Selection</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="selection" role="img" aria-label="Thumbnail of the selection pane"></div>
                   </figure>
                 </div>
               </div>

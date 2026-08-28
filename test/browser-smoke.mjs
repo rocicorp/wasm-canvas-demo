@@ -172,42 +172,95 @@ try {
       const pausedMoved = movedFrom(pausedBefore);
       const pausedBadgeVisible = !document.getElementById('walk-robots-paused').hidden;
 
-      // Step 04 is an interactive proof, not a mock. Recolor and enlarge its real row through
-      // the controls, then verify the already-materialized cards folded the same commit.
-      const editorShape = document.getElementById('walk-edit-shape');
-      const editorId = Number(editorShape?.dataset.shapeId);
+      // Step 04 is the real CanvasView aimed at one row. Drive its empty-space deselection, shape
+      // selection and standard SE handle before checking that the maintained cards folded.
+      const editorCanvas = document.getElementById('walk-shape-canvas');
+      const walkCanvas = globalThis.rindleWalkCanvas;
+      editorCanvas.setPointerCapture = () => {};
+      editorCanvas.releasePointerCapture = () => {};
+      const editorId = Number(editorCanvas?.dataset.shapeId);
       const editorBefore = app.mirror.get(editorId);
       const tallyBefore = document.querySelector('[data-walk-pane="tally"] .pbody')?.textContent ?? '';
+      const selectionBodies = () => [...document.querySelectorAll('[data-walk-pane="selection"] .pbody')];
+      const selectionShowsRow = () => selectionBodies().every((body) => body.textContent.includes('#' + editorId));
+      const selectionIsEmpty = () => selectionBodies().every((body) => !body.textContent.includes('#' + editorId));
+      const editorBox = editorCanvas.getBoundingClientRect();
+      const toClient = (wx, wy) => {
+        const view = walkCanvas.viewport();
+        return {
+          x: editorBox.left + (wx - view.x0) * walkCanvas.zoom,
+          y: editorBox.top + (wy - view.y0) * walkCanvas.zoom,
+        };
+      };
+      const pointer = (type, wx, wy, pointerId) => {
+        const p = toClient(wx, wy);
+        editorCanvas.dispatchEvent(new PointerEvent(type, {
+          pointerId, clientX: p.x, clientY: p.y, bubbles: true, cancelable: true,
+        }));
+      };
+      const settleEditor = async () => {
+        for (let i = 0; i < 4; i++) await new Promise((r) => requestAnimationFrame(r));
+        await new Promise((r) => setTimeout(r, 100));
+      };
+
+      await settleEditor();
+      const initiallySelected = app.selected.has(editorId) && selectionShowsRow();
+      const initialView = walkCanvas.viewport();
+      const emptyX = initialView.x0 + 4 / walkCanvas.zoom;
+      const emptyY = initialView.y0 + 4 / walkCanvas.zoom;
+      pointer('pointerdown', emptyX, emptyY, 70);
+      pointer('pointerup', emptyX, emptyY, 70);
+      await settleEditor();
+      const deselected = !app.selected.has(editorId) && selectionIsEmpty();
+
+      const rowToSelect = app.mirror.get(editorId);
+      pointer('pointerdown', rowToSelect.x, rowToSelect.y, 71);
+      pointer('pointerup', rowToSelect.x, rowToSelect.y, 71);
+      await settleEditor();
+      const reselected = app.selected.has(editorId) && selectionShowsRow();
+
       const swatch = [...document.querySelectorAll('.walk-shape-swatch')]
         .find((button) => button.dataset.color !== editorBefore?.color);
       swatch?.click();
-      const pointer = (type, x, y, pointerId) => editorShape?.dispatchEvent(new PointerEvent(type, {
-        pointerId, clientX: x, clientY: y, bubbles: true, cancelable: true,
-      }));
-      const beforeResize = editorShape?.getBoundingClientRect();
-      if (beforeResize) {
-        pointer('pointerdown', beforeResize.right - 3, beforeResize.bottom - 3, 71);
-        pointer('pointermove', beforeResize.right + 260, beforeResize.bottom + 100, 71);
-        pointer('pointerup', beforeResize.right + 260, beforeResize.bottom + 100, 71);
-      }
-      const beforeMove = editorShape?.getBoundingClientRect();
-      if (beforeMove) {
-        const x = (beforeMove.left + beforeMove.right) / 2;
-        const y = (beforeMove.top + beforeMove.bottom) / 2;
-        pointer('pointerdown', x, y, 72);
-        pointer('pointermove', x - 10, y, 72);
-        pointer('pointerup', x - 10, y, 72);
-      }
-      await new Promise((r) => setTimeout(r, 250));
+      await settleEditor();
+
+      const beforeResize = app.mirror.get(editorId);
+      const frame = globalThis.rindleGeom.frameOf([beforeResize]);
+      const handle = globalThis.rindleGeom.handlePoints(frame, 1 / walkCanvas.zoom).find((p) => p.id === 'se');
+      pointer('pointerdown', handle.x, handle.y, 72);
+      pointer('pointermove', handle.x + 260, handle.y + 100, 72);
+      pointer('pointerup', handle.x + 260, handle.y + 100, 72);
+      await settleEditor();
+
+      const beforeMove = app.mirror.get(editorId);
+      pointer('pointerdown', beforeMove.x, beforeMove.y, 73);
+      pointer('pointermove', beforeMove.x - 10, beforeMove.y, 73);
+      pointer('pointerup', beforeMove.x - 10, beforeMove.y, 73);
+      await settleEditor();
       const editorAfter = app.mirror.get(editorId);
+
+      // Leave the lab unselected: both the chrome and the Selection card should now be empty.
+      pointer('pointerdown', editorAfter.x + editorAfter.w * 4 + 100, editorAfter.y + editorAfter.h * 4 + 100, 74);
+      pointer('pointerup', editorAfter.x + editorAfter.w * 4 + 100, editorAfter.y + editorAfter.h * 4 + 100, 74);
+      await settleEditor();
       const editor = {
-        present: !!editorShape && Number.isFinite(editorId) && !!swatch,
+        present: !!editorCanvas && Number.isFinite(editorId) && !!swatch,
+        before: editorBefore,
+        after: editorAfter,
+        wantedColor: swatch?.dataset.color,
+        sharedCanvas: walkCanvas?.constructor === globalThis.rindleCanvas?.constructor,
+        initiallySelected,
+        deselected,
+        reselected,
+        deselectedAgain:
+          !app.selected.has(editorId) &&
+          selectionIsEmpty() &&
+          document.getElementById('walk-shape-meta').textContent.includes('not selected'),
         changed:
           editorAfter?.color === swatch?.dataset.color &&
           editorAfter?.w > (editorBefore?.w ?? Infinity) &&
           editorAfter?.h > (editorBefore?.h ?? Infinity) &&
-          editorAfter?.x < (editorBefore?.x ?? -Infinity),
-        rowIsYours: editorAfter?.who === 0,
+          editorAfter?.x < (beforeMove?.x ?? -Infinity),
         tallyChanged:
           tallyBefore !== (document.querySelector('[data-walk-pane="tally"] .pbody')?.textContent ?? ''),
         recentUpdated:
@@ -873,7 +926,8 @@ try {
       for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r));
       const walkBox = document.getElementById('walk-shape-lab').getBoundingClientRect();
       const walkStage = document.getElementById('walk-shape-stage').getBoundingClientRect();
-      const walkShape = document.getElementById('walk-edit-shape').getBoundingClientRect();
+      const walkCanvas = document.getElementById('walk-shape-canvas');
+      const walkCanvasBox = walkCanvas.getBoundingClientRect();
       const walkSwatches = [...document.querySelectorAll('.walk-shape-swatch')]
         .map((el) => el.getBoundingClientRect());
       return {
@@ -899,7 +953,10 @@ try {
         noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
         walkEditor: {
           contained: walkBox.left >= 0 && walkBox.right <= innerWidth && walkStage.width > 250,
-          shapeTarget: walkShape.width >= 44 && walkShape.height >= 44,
+          canvasTarget:
+            walkCanvasBox.width === walkStage.width &&
+            walkCanvasBox.height === walkStage.height &&
+            getComputedStyle(walkCanvas).touchAction === 'none',
           colorTargets: walkSwatches.every((r) => r.width >= 39.5 && r.height >= 39.5),
           noHorizontalOverflow:
             document.getElementById('walkthrough').scrollWidth <= document.getElementById('walkthrough').clientWidth,
@@ -966,7 +1023,15 @@ try {
   if (!walkthrough.defaultWalkthrough) fail("an unqualified URL did not open the walkthrough by default");
   if (!walkthrough.permalinks) fail("the walkthrough source links do not target the latest main revision");
   if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");
-  if (!walkthrough.editor?.present || !walkthrough.editor.changed || !walkthrough.editor.rowIsYours) {
+  if (
+    !walkthrough.editor?.present ||
+    !walkthrough.editor.sharedCanvas ||
+    !walkthrough.editor.initiallySelected ||
+    !walkthrough.editor.deselected ||
+    !walkthrough.editor.reselected ||
+    !walkthrough.editor.deselectedAgain ||
+    !walkthrough.editor.changed
+  ) {
     fail(`the walkthrough shape editor did not edit its real row: ${JSON.stringify(walkthrough.editor)}`);
   }
   if (
@@ -1103,7 +1168,7 @@ try {
   if (!mobile.noHorizontalOverflow) fail(`the mobile page overflows horizontally: ${JSON.stringify(mobile)}`);
   if (
     !mobile.walkEditor.contained ||
-    !mobile.walkEditor.shapeTarget ||
+    !mobile.walkEditor.canvasTarget ||
     !mobile.walkEditor.colorTargets ||
     !mobile.walkEditor.noHorizontalOverflow
   ) {

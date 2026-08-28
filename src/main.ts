@@ -18,7 +18,7 @@ import type { ResultRow } from "./queries.ts";
 import type { ShapeRow } from "./mirror.ts";
 import { fmtInt, fmtMs, Samples } from "./metrics.ts";
 import { CONFETTI_WHO, HEX, PALETTE, YOU } from "./schema.ts";
-import type { Mut, SetPatch } from "./write.ts";
+import type { Mut } from "./write.ts";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -128,34 +128,19 @@ showView(initialView);
 /** Muts queued by the PAGE (palette recolor, delete key) — committed with the gesture muts. */
 let extraMuts: Mut[] = [];
 
-// Step 04's proof: one real row from the drawing, editable without leaving the walkthrough. The
-// edits join `extraMuts`, so they pass through the same Writer transaction as canvas gestures and
-// the cloned panel cards repaint only when their already-materialized queries fold the delta.
+// Step 04 is a second view of the SAME canvas component, aimed at one real row. Its gestures join
+// `extraMuts` in the frame loop below, so there is no walkthrough-only selection or transform
+// implementation to drift away from the drawing's.
 const walkShapeLab = $<HTMLElement>("walk-shape-lab");
-const walkShapeStage = $<HTMLElement>("walk-shape-stage");
-const walkShapeEl = $<HTMLButtonElement>("walk-edit-shape");
-const walkShapeFill = walkShapeEl.querySelector<HTMLElement>(".walk-edit-fill")!;
+const walkShapeCanvasEl = $<HTMLCanvasElement>("walk-shape-canvas");
 const walkShapeMeta = $<HTMLElement>("walk-shape-meta");
 const walkShapeSwatches = $<HTMLElement>("walk-shape-swatches");
 const walkRobotsPaused = $<HTMLElement>("walk-robots-paused");
 const WALK_SHAPE_PREFERRED_ID = 10;
-const WALK_SHAPE_MARGIN = 18;
 
 let walkShapeId = WALK_SHAPE_PREFERRED_ID;
 let walkShapeInView = false;
-let walkShapeOrigin: { id: number; x: number; y: number } | null = null;
-let walkShapePreview: { id: number; patch: SetPatch } | null = null;
-let walkShapeGesture:
-  | {
-      pointerId: number;
-      mode: "move" | "resize";
-      clientX: number;
-      clientY: number;
-      localX: number;
-      localY: number;
-      row: ShapeRow;
-    }
-  | null = null;
+const walkSelectedIds = new Set<number>();
 
 const robotTicksPausedForWalkthrough = (): boolean => walkthroughOpen && walkShapeInView;
 const paintWalkRobotPause = (): void => {
@@ -176,192 +161,89 @@ walkShapeSwatches.innerHTML = PALETTE.map(
     `style="--swatch:${hex}" title="recolor this row ${key}" aria-label="Recolor shape ${key}"></button>`,
 ).join("");
 
-const clampWalk = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
-const roundWalk = (value: number): number => Math.round(value * 10) / 10;
-
 function chooseWalkShape(): ShapeRow | undefined {
   const preferred = app.mirror.get(WALK_SHAPE_PREFERRED_ID);
   if (preferred) return preferred;
   return [...app.mirror.all()].find((row) => row.who !== CONFETTI_WHO) ?? app.mirror.all().next().value;
 }
 
+function walkShapeRow(): ShapeRow | undefined {
+  return app.mirror.get(walkShapeId) ?? chooseWalkShape();
+}
+
+function walkSelection(): ReadonlySet<number> {
+  walkSelectedIds.clear();
+  if (app.selected.has(walkShapeId)) walkSelectedIds.add(walkShapeId);
+  return walkSelectedIds;
+}
+
+function walkSelectionRows(): readonly ResultRow[] {
+  const row = walkShapeRow();
+  return row && app.selected.has(row.id) ? ([row] as unknown as readonly ResultRow[]) : [];
+}
+
+const walkCanvas = new CanvasView(walkShapeCanvasEl, {
+  rows: () => {
+    const row = walkShapeRow();
+    return row ? ([row] as unknown as readonly ResultRow[]) : [];
+  },
+  // Mirror the main canvas's immediate-selection fallback: membership changes synchronously,
+  // while the selection query folds the row write. The row itself still comes from the mirror.
+  selectedRows: walkSelectionRows,
+  selected: walkSelection,
+  draft: (kind, x, y, w, h, color, who) => app.writer.draft(kind, x, y, w, h, color, who),
+  select: (ids) => selectAndReport(ids.filter((id) => id === walkShapeId)),
+  toggle: (id) => {
+    if (id === walkShapeId) void app.toggle(id);
+  },
+  mark: (tag) => app.mark(tag),
+});
+walkCanvas.tool = "select";
+Object.assign(globalThis, { rindleWalkCanvas: walkCanvas });
+
 function resetWalkShapeEditor(): ShapeRow | undefined {
   const row = chooseWalkShape();
-  if (!row) return undefined;
+  if (!row || walkShapeCanvasEl.clientWidth === 0 || walkShapeCanvasEl.clientHeight === 0) return row;
   walkShapeId = row.id;
-  walkShapeOrigin = { id: row.id, x: row.x, y: row.y };
-  walkShapePreview = null;
+  walkShapeCanvasEl.dataset.shapeId = String(row.id);
+  walkCanvas.brush = row.color;
+  const box = aabbOf(row);
+  const padx = Math.max(12, (box.x1 - box.x0) * 0.15);
+  const pady = Math.max(12, (box.y1 - box.y0) * 0.15);
+  walkCanvas.zoomToRect({ x0: box.x0 - padx, y0: box.y0 - pady, x1: box.x1 + padx, y1: box.y1 + pady });
+  selectAndReport([row.id]);
   walkShapeReset = false;
   return row;
-}
-
-function walkShapeRow(): ShapeRow | undefined {
-  const base = app.mirror.get(walkShapeId) ?? resetWalkShapeEditor();
-  if (!base) return undefined;
-  if (walkShapePreview?.id !== base.id) return base;
-  const landed = Object.entries(walkShapePreview.patch).every(
-    ([key, value]) => (base as unknown as Record<string, unknown>)[key] === value,
-  );
-  if (landed) {
-    walkShapePreview = null;
-    return base;
-  }
-  return { ...base, ...walkShapePreview.patch };
-}
-
-function queueWalkShapePatch(patch: SetPatch): void {
-  const row = walkShapeRow();
-  if (!row) return;
-  const next = { ...(walkShapePreview?.id === row.id ? walkShapePreview.patch : {}), ...patch, who: YOU };
-  walkShapePreview = { id: row.id, patch: next };
-  extraMuts.push({ op: "set", id: row.id, patch: next });
-  renderWalkShapeEditor();
 }
 
 function renderWalkShapeEditor(): void {
   paintWalkRobotPause();
   if (!walkthroughOpen) return;
-  let row = walkShapeReset ? resetWalkShapeEditor() : walkShapeRow();
+  const row = walkShapeReset ? resetWalkShapeEditor() : walkShapeRow();
   if (!row) {
     walkShapeLab.hidden = true;
     return;
   }
   walkShapeLab.hidden = false;
-  if (!walkShapeOrigin || walkShapeOrigin.id !== row.id) {
-    walkShapeOrigin = { id: row.id, x: row.x, y: row.y };
-  }
-
-  const stageWidth = walkShapeStage.clientWidth;
-  const stageHeight = walkShapeStage.clientHeight;
-  if (stageWidth === 0 || stageHeight === 0) return;
-  const width = clampWalk(row.w, 28, stageWidth - WALK_SHAPE_MARGIN * 2);
-  const height = clampWalk(row.h, 28, stageHeight - WALK_SHAPE_MARGIN * 2);
-  const centerX = clampWalk(
-    stageWidth / 2 + row.x - walkShapeOrigin.x,
-    WALK_SHAPE_MARGIN + width / 2,
-    stageWidth - WALK_SHAPE_MARGIN - width / 2,
-  );
-  const centerY = clampWalk(
-    stageHeight / 2 + row.y - walkShapeOrigin.y,
-    WALK_SHAPE_MARGIN + height / 2,
-    stageHeight - WALK_SHAPE_MARGIN - height / 2,
-  );
-
-  walkShapeEl.style.left = `${centerX}px`;
-  walkShapeEl.style.top = `${centerY}px`;
-  walkShapeEl.style.width = `${width}px`;
-  walkShapeEl.style.height = `${height}px`;
-  walkShapeEl.dataset.shapeId = String(row.id);
-  walkShapeFill.dataset.kind = row.kind;
-  walkShapeFill.style.background = HEX.get(row.color) ?? "#888";
-  walkShapeFill.style.transform = `rotate(${row.rot}rad)`;
-  walkShapeMeta.textContent = `#${row.id} · ${row.kind} · ${Math.round(row.w)}×${Math.round(row.h)} · ${row.color}`;
-  walkShapeEl.setAttribute(
-    "aria-label",
-    `Editable ${row.color} ${row.kind} ${row.id}. Drag to move; drag its lower-right corner to resize. ` +
-      "Arrow keys move; Shift plus arrow keys resize.",
-  );
+  walkShapeCanvasEl.dataset.shapeId = String(row.id);
+  const selected = app.selected.has(row.id);
+  walkShapeMeta.textContent =
+    `#${row.id} · ${selected ? "selected" : "not selected"} · ` +
+    `${row.kind} · ${Math.round(row.w)}×${Math.round(row.h)} · ${row.color}`;
   for (const swatch of walkShapeSwatches.querySelectorAll<HTMLButtonElement>(".walk-shape-swatch")) {
-    const on = swatch.dataset.color === row.color;
+    const on = swatch.dataset.color === walkCanvas.brush;
     swatch.classList.toggle("on", on);
     swatch.setAttribute("aria-pressed", String(on));
   }
+  walkCanvas.render();
 }
-
-walkShapeEl.addEventListener("pointerdown", (event) => {
-  const row = walkShapeRow();
-  if (!row) return;
-  event.preventDefault();
-  const shapeRect = walkShapeEl.getBoundingClientRect();
-  const stageRect = walkShapeStage.getBoundingClientRect();
-  const mode =
-    event.clientX >= shapeRect.right - 24 && event.clientY >= shapeRect.bottom - 24 ? "resize" : "move";
-  walkShapeGesture = {
-    pointerId: event.pointerId,
-    mode,
-    clientX: event.clientX,
-    clientY: event.clientY,
-    localX: (shapeRect.left + shapeRect.right) / 2 - stageRect.left,
-    localY: (shapeRect.top + shapeRect.bottom) / 2 - stageRect.top,
-    row,
-  };
-  app.mark(mode === "resize" ? "walkthrough resize" : "walkthrough move");
-  walkShapeEl.classList.add("dragging");
-  try {
-    walkShapeEl.setPointerCapture(event.pointerId);
-  } catch {
-    // Synthetic test pointers have no browser capture target; real pointers do.
-  }
-});
-
-walkShapeEl.addEventListener("pointermove", (event) => {
-  const gesture = walkShapeGesture;
-  if (!gesture || gesture.pointerId !== event.pointerId) return;
-  event.preventDefault();
-  const dx = event.clientX - gesture.clientX;
-  const dy = event.clientY - gesture.clientY;
-  if (gesture.mode === "resize") {
-    queueWalkShapePatch({
-      w: roundWalk(clampWalk(gesture.row.w + dx, 24, walkShapeStage.clientWidth - WALK_SHAPE_MARGIN * 2)),
-      h: roundWalk(clampWalk(gesture.row.h + dy, 24, walkShapeStage.clientHeight - WALK_SHAPE_MARGIN * 2)),
-    });
-    return;
-  }
-
-  const shownWidth = clampWalk(gesture.row.w, 28, walkShapeStage.clientWidth - WALK_SHAPE_MARGIN * 2);
-  const shownHeight = clampWalk(gesture.row.h, 28, walkShapeStage.clientHeight - WALK_SHAPE_MARGIN * 2);
-  const localX = clampWalk(
-    gesture.localX + dx,
-    WALK_SHAPE_MARGIN + shownWidth / 2,
-    walkShapeStage.clientWidth - WALK_SHAPE_MARGIN - shownWidth / 2,
-  );
-  const localY = clampWalk(
-    gesture.localY + dy,
-    WALK_SHAPE_MARGIN + shownHeight / 2,
-    walkShapeStage.clientHeight - WALK_SHAPE_MARGIN - shownHeight / 2,
-  );
-  queueWalkShapePatch({
-    x: roundWalk(gesture.row.x + localX - gesture.localX),
-    y: roundWalk(gesture.row.y + localY - gesture.localY),
-  });
-});
-
-const endWalkShapeGesture = (event: PointerEvent): void => {
-  if (!walkShapeGesture || walkShapeGesture.pointerId !== event.pointerId) return;
-  walkShapeGesture = null;
-  walkShapeEl.classList.remove("dragging");
-};
-walkShapeEl.addEventListener("pointerup", endWalkShapeGesture);
-walkShapeEl.addEventListener("pointercancel", endWalkShapeGesture);
-
-walkShapeEl.addEventListener("keydown", (event) => {
-  const directions: Record<string, [number, number]> = {
-    ArrowLeft: [-1, 0],
-    ArrowRight: [1, 0],
-    ArrowUp: [0, -1],
-    ArrowDown: [0, 1],
-  };
-  const direction = directions[event.key];
-  const row = walkShapeRow();
-  if (!direction || !row) return;
-  event.preventDefault();
-  const amount = 10;
-  app.mark(event.shiftKey ? "walkthrough resize" : "walkthrough move", 500);
-  if (event.shiftKey) {
-    queueWalkShapePatch({
-      w: roundWalk(clampWalk(row.w + direction[0] * amount, 24, walkShapeStage.clientWidth - 36)),
-      h: roundWalk(clampWalk(row.h + direction[1] * amount, 24, walkShapeStage.clientHeight - 36)),
-    });
-  } else {
-    queueWalkShapePatch({ x: roundWalk(row.x + direction[0] * amount), y: roundWalk(row.y + direction[1] * amount) });
-  }
-});
 
 walkShapeSwatches.addEventListener("click", (event) => {
   const swatch = (event.target as HTMLElement).closest<HTMLButtonElement>(".walk-shape-swatch");
   if (!swatch?.dataset.color) return;
-  app.mark("walkthrough recolor");
-  queueWalkShapePatch({ color: swatch.dataset.color });
+  walkCanvas.brush = swatch.dataset.color;
+  recolorRows(walkSelectionRows() as unknown as readonly ShapeRow[], swatch.dataset.color);
+  renderWalkShapeEditor();
 });
 
 const canvas = new CanvasView($<HTMLCanvasElement>("canvas"), {
@@ -944,11 +826,7 @@ const tallyPanel = panel(
   "each count is one row of the aggregate — recolor a shape and two of them move in the same commit",
 );
 
-tallyPanel.body.addEventListener("click", (ev) => {
-  const chip = (ev.target as HTMLElement).closest(".chip") as HTMLElement | null;
-  if (!chip?.dataset.color) return;
-  canvas.brush = chip.dataset.color;
-  const rows = app.selectionRows() as unknown as readonly ShapeRow[];
+function recolorRows(rows: readonly ShapeRow[], color: string): void {
   if (rows.length > 0) app.mark("recolor");
   for (const s of rows) {
     // A recolour promotes a speck out of the cached layer exactly as a drag does
@@ -958,8 +836,15 @@ tallyPanel.body.addEventListener("click", (ev) => {
     // colour it used to be. Right in the query, wrong on the glass — the layer must be promoted
     // before the writer coalesces both patches into one edit.
     if (s.who === CONFETTI_WHO) extraMuts.push({ op: "set", id: s.id, patch: { who: YOU } });
-    extraMuts.push({ op: "set", id: s.id, patch: { color: chip.dataset.color } });
+    extraMuts.push({ op: "set", id: s.id, patch: { color } });
   }
+}
+
+tallyPanel.body.addEventListener("click", (ev) => {
+  const chip = (ev.target as HTMLElement).closest(".chip") as HTMLElement | null;
+  if (!chip?.dataset.color) return;
+  canvas.brush = chip.dataset.color;
+  recolorRows(app.selectionRows() as unknown as readonly ShapeRow[], chip.dataset.color);
   tallyPanel.renderedSeq = -1; // repaint the chips' "on" state now
 });
 
@@ -1302,13 +1187,12 @@ function frame(now: number): void {
 
   // 1 — writes. One transaction per writer per frame; the Writer serializes commits internally,
   // so a burst never interleaves two store.write calls.
-  const muts = [...canvas.drainMuts(), ...extraMuts];
+  const muts = [...canvas.drainMuts(), ...walkCanvas.drainMuts(), ...extraMuts];
   extraMuts = [];
-  // The walkthrough editor promotes its row to YOU in this commit. Exclude it immediately rather
-  // than waiting one frame for that new owner to reach the mirror, or a high-rate robot could
-  // enqueue one last stale move while the visitor is holding it.
-  const botExcludes =
-    walkShapeGesture || walkShapePreview ? new Set([...(canvas.dragging ?? []), walkShapeId]) : canvas.dragging;
+  // Both CanvasView instances expose the ids their current gesture is writing. Exclude that
+  // union immediately, rather than waiting for ownership changes to reach the mirror.
+  const dragging = [...(canvas.dragging ?? []), ...(walkCanvas.dragging ?? [])];
+  const botExcludes = dragging.length > 0 ? new Set(dragging) : null;
   const botMuts =
     app.bots.enabled && !robotTicksPausedForWalkthrough() ? app.bots.tick(dt, now, botExcludes) : [];
   if (muts.length > 0) void app.commit(muts);
