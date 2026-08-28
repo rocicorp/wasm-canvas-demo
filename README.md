@@ -6,7 +6,7 @@ Every UI read is a live query over an in-tab WebAssembly engine. A component dec
 
 **Query once → write state → every view is current.**
 
-## UI = F(state)
+## Everything = F(state)
 
 ### 01 / Declare the view
 
@@ -27,11 +27,16 @@ The view stays current for as long as the component needs it.
 
 ### 02 / Render current state
 
-```ts
+```tsx
 function RecentWrites() {
-  return recent.data.map((shape) =>
-    row(shape.id, shape.kind, shape.updated)
-  );
+  return recent.data.map((shape) => (
+    <RecentWrite
+      key={shape.id}
+      kind={shape.kind}
+      color={shape.color}
+      updated={shape.updated}
+    />
+  ));
 }
 ```
 

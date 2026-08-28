@@ -72,9 +72,9 @@
             <div class="walk-hero-mark" aria-hidden="true">f</div>
             <div class="walk-hero-copy">
               <p class="walk-eyebrow">The frontend model</p>
-              <h1 id="walk-title"><span>UI = </span><em>F(state)</em></h1>
+              <h1 id="walk-title"><span>Everything = </span><em>F(state)</em></h1>
               <p class="walk-lede">
-                A component declares the data it needs as a query. That query stays up to date, frame by frame. 
+                A component declares the data it needs as a query. That query stays up to date. Every frame.
                 No cache invalidation, refetch
                 choreography, or hand-written synchronization.
               </p>
@@ -112,7 +112,7 @@
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">01 / Declare the view</p>
-                <h2>The query is the contract.</h2>
+                <h2>The query is the API.</h2>
                 <p>
                   The query on the left doesn't fetch eight rows and leave you hanging. It
                   creates a maintained view: the newest eight visible shapes, in order, for as
@@ -129,9 +129,14 @@
               <div class="walk-code">
                 <div class="walk-code-head"><span>02 · read</span><span>component</span></div>
                 <pre class="walk-source">function RecentWrites() {
-  return recent.data.map((shape) =>
-    row(shape.id, shape.kind, shape.updated)
-  );
+  return recent.data.map((shape) => (
+    &lt;RecentWrite
+      key={shape.id}
+      kind={shape.kind}
+      color={shape.color}
+      updated={shape.updated}
+    />
+  ));
 }</pre>
                 <div class="walk-code-foot">
                   <span>demo implementation</span>
@@ -145,13 +150,11 @@
                 <p class="walk-step-no">02 / Render current state</p>
                 <h2>The UI is a function of the query.</h2>
                 <p>
-                  The component reads the query’s current rows. The binding schedules a render
-                  when that query receives an update. Application code does not work out what changed
-                  or patch the collection by hand.
+                  The component reads the query’s current rows. Your UI framework schedules a render
+                  when that query receives an update.
                 </p>
                 <p>
-                  Loading the initial result and maintaining it are the same abstraction. Once
-                  materialized, <code>recent.data</code> is the current answer now and forever.
+                  Getting the initial result and maintaining the result are the same abstraction.
                 </p>
               </div>
             </section>
@@ -191,7 +194,6 @@ palette.data;</pre>
                   derives the consequences and updates every affected query. When the promise
                   resolves, the next paint already has the right data.
                 </p>
-                <aside class="walk-note"><b>Try it.</b> Drag a shape and watch the query panels pulse together.</aside>
               </div>
             </section>
 
