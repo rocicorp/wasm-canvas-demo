@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>zero paint demo</title>
+    <title>Zero paint</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="boot">
-      <h1>zero paint demo</h1>
+      <h1>Zero paint</h1>
       <p class="lede">booting the wasm engine…</p>
     </div>
 
@@ -17,7 +17,7 @@
         <div class="brand">
           <!-- Absolute, not `/demo`: this page is served both from rindle.sh/demo/canvas/
                and from a bare `vite dev` on :5173, where a site-relative path 404s. -->
-          <a href="https://rindle.sh/demo">zero</a> paint demo
+          <a href="https://zerosync.dev/">Zero</a> paint
         </div>
         <nav id="viewtabs" aria-label="Demo views">
           <button class="viewtab on" data-view="canvas" aria-controls="body" aria-pressed="true">canvas</button>
@@ -72,9 +72,9 @@
             <div class="walk-hero-mark" aria-hidden="true">f</div>
             <div class="walk-hero-copy">
               <p class="walk-eyebrow">The frontend model</p>
-              <h1 id="walk-title"><span>UI = </span><em>F(state)</em></h1>
+              <h1 id="walk-title"><span>Everything = </span><em>F(state)</em></h1>
               <p class="walk-lede">
-                A component declares the data it needs as a query. That query stays up to date, frame by frame. 
+                A component declares the data it needs as a query. That query stays up to date. Every frame.
                 No cache invalidation, refetch
                 choreography, or hand-written synchronization.
               </p>
@@ -112,7 +112,7 @@
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">01 / Declare the view</p>
-                <h2>The query is the contract.</h2>
+                <h2>The query is the API.</h2>
                 <p>
                   The query on the left doesn't fetch eight rows and leave you hanging. It
                   creates a maintained view: the newest eight visible shapes, in order, for as
@@ -129,9 +129,14 @@
               <div class="walk-code">
                 <div class="walk-code-head"><span>02 · read</span><span>component</span></div>
                 <pre class="walk-source">function RecentWrites() {
-  return recent.data.map((shape) =>
-    row(shape.id, shape.kind, shape.updated)
-  );
+  return recent.data.map((shape) => (
+    &lt;RecentWrite
+      key={shape.id}
+      kind={shape.kind}
+      color={shape.color}
+      updated={shape.updated}
+    />
+  ));
 }</pre>
                 <div class="walk-code-foot">
                   <span>demo implementation</span>
@@ -145,13 +150,11 @@
                 <p class="walk-step-no">02 / Render current state</p>
                 <h2>The UI is a function of the query.</h2>
                 <p>
-                  The component reads the query’s current rows. The binding schedules a render
-                  when that query receives an update. Application code does not work out what changed
-                  or patch the collection by hand.
+                  The component reads the query’s current rows. Your UI framework schedules a render
+                  when that query receives an update.
                 </p>
                 <p>
-                  Loading the initial result and maintaining it are the same abstraction. Once
-                  materialized, <code>recent.data</code> is the current answer now and forever.
+                  Getting the initial result and maintaining the result are the same abstraction.
                 </p>
               </div>
             </section>
@@ -191,7 +194,6 @@ palette.data;</pre>
                   derives the consequences and updates every affected query. When the promise
                   resolves, the next paint already has the right data.
                 </p>
-                <aside class="walk-note"><b>Try it.</b> Drag a shape and watch the query panels pulse together.</aside>
               </div>
             </section>
 
@@ -207,8 +209,9 @@ const largest = q.shape
 const recent = q.shape
   .orderBy("updated", "desc").limit(8);
 
-const cell = q.shape
-  .where.c1(cellId).orderBy("z", "asc");</pre>
+const selected = q.shape
+  .where(exists(onSelection))
+  .orderBy("z", "asc");</pre>
                 <div class="walk-code-foot">
                   <span>demo implementation</span>
                   <span class="walk-source-links">
@@ -218,16 +221,44 @@ const cell = q.shape
               </div>
               <div class="walk-copy">
                 <p class="walk-step-no">04 / Let queries do the bookkeeping</p>
-                <h2>One row can have many derivations.</h2>
+                <h2>Change a row. Every impacted view updates.</h2>
                 <p>
                   Recoloring moves a count between palette groups. Resizing can reseat the
-                  leaderboard. Any edit moves the shape to the top of the feed. Dragging across a
-                  cell boundary removes it from one canvas query and inserts it into its neighbor.
+                  leaderboard. Any edit moves the shape to the top of the feed. Selecting or
+                  deselecting changes the selection view without changing its query.
                 </p>
                 <p>
-                  These are not four update handlers. They are four declarations.
+                  These are not four update handlers. They are four declarations. Edit the live
+                  row below and watch only the impacted panels react.
                 </p>
+              </div>
+              <div class="walk-fanout-demo">
+                <div class="walk-shape-lab" id="walk-shape-lab">
+                  <div class="walk-shape-lab-head">
+                    <b>Edit one live row</b>
+                    <div class="walk-shape-lab-state">
+                      <span id="walk-shape-meta"></span>
+                      <span class="walk-robots-paused" id="walk-robots-paused" hidden>robots paused</span>
+                    </div>
+                  </div>
+                  <div class="walk-shape-stage" id="walk-shape-stage">
+                    <canvas
+                      class="walk-shape-canvas"
+                      id="walk-shape-canvas"
+                      aria-label="Mini canvas. Click the shape to select it, click empty space to deselect it, and use the selection handles to edit it."
+                    ></canvas>
+                    <span class="walk-shape-stage-hint">click empty space to deselect · same controls as the canvas</span>
+                  </div>
+                  <div class="walk-shape-colors">
+                    <span>recolor</span>
+                    <div id="walk-shape-swatches" aria-label="Shape color"></div>
+                  </div>
+                </div>
                 <div class="walk-pane-gallery" aria-label="The four derived components in the demo">
+                  <figure class="walk-pane-ref">
+                    <figcaption><span>Live from the demo</span><b>Selection</b></figcaption>
+                    <div class="walk-pane-frame" data-walk-pane="selection" role="img" aria-label="Thumbnail of the selection pane"></div>
+                  </figure>
                   <figure class="walk-pane-ref">
                     <figcaption><span>Live from the demo</span><b>Palette</b></figcaption>
                     <div class="walk-pane-frame" data-walk-pane="tally" role="img" aria-label="Thumbnail of the palette pane"></div>
@@ -240,52 +271,7 @@ const cell = q.shape
                     <figcaption><span>Live from the demo</span><b>Recent writes</b></figcaption>
                     <div class="walk-pane-frame" data-walk-pane="recent" role="img" aria-label="Thumbnail of the recent writes pane"></div>
                   </figure>
-                  <figure class="walk-pane-ref">
-                    <figcaption><span>Live from the demo</span><b>Viewport</b></figcaption>
-                    <div class="walk-pane-frame" data-walk-pane="viewport" role="img" aria-label="Thumbnail of the viewport pane"></div>
-                  </figure>
                 </div>
-              </div>
-            </section>
-
-            <section class="walk-step" id="walk-relationships">
-              <div class="walk-code">
-                <div class="walk-code-head"><span>05 · relate</span><span>layer visibility</span></div>
-                <pre class="walk-source">const visible = exists(onLayer,
-  (layer) => layer.where.visible(1)
-);
-
-const painted = q.shape
-  .where(visible)
-  .orderBy("z", "asc");
-
-await mutate.canvasFrame({
-  layerUpdates: [{ id, visible: 0 }]
-});</pre>
-                <div class="walk-code-foot">
-                  <span>demo implementation</span>
-                  <span class="walk-source-links">
-                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/73e0384e5d5b77bb12f7260cd296518876502816/src/queries.ts#L20-L23" target="_blank" rel="noopener noreferrer">relationship · queries.ts:20–23 <span aria-hidden="true">↗</span></a>
-                    <a href="https://github.com/rocicorp/wasm-canvas-demo/blob/73e0384e5d5b77bb12f7260cd296518876502816/src/main.ts#L716-L750" target="_blank" rel="noopener noreferrer">eye write · main.ts:716–750 <span aria-hidden="true">↗</span></a>
-                  </span>
-                </div>
-              </div>
-              <div class="walk-copy">
-                <p class="walk-step-no">05 / Model relationships, not effects</p>
-                <h2>A tiny write can have a large, exact fan-out.</h2>
-                <p>
-                  Whether a shape is visible is a function of whether its layer is on. Hide the
-                  layer: one row changes and every dependent query hides the correct shapes.
-                </p>
-                <p>
-                  You do not walk the shapes, clear caches, or notify panels. The join already
-                  describes the consequence.
-                </p>
-                <aside class="walk-note"><b>On the canvas</b> Click an eye in “layers” to make one write fan out across thousands of rows.</aside>
-                <figure class="walk-pane-ref">
-                  <figcaption><span>Live from the demo</span><b>Layers</b></figcaption>
-                  <div class="walk-pane-frame" data-walk-pane="layers" role="img" aria-label="Thumbnail of the layers pane"></div>
-                </figure>
               </div>
             </section>
 
@@ -310,8 +296,8 @@ await mutate.canvasFrame({
                 </div>
               </div>
               <div class="walk-copy">
-                <p class="walk-step-no">06 / Change data, not query identity</p>
-                <h2>Even ephemeral UI state can be declarative.</h2>
+                <p class="walk-step-no">05 / Change data, not query identity</p>
+                <h2>Even ephemeral state can be declarative.</h2>
                 <p>
                   The selected ids live in a table. Dragging a selection box writes only the rows crossing its edge. Impacted queries are updated atomically.
                 </p>

@@ -130,6 +130,8 @@ type Gesture =
 export class CanvasView {
   tool: Tool = "select";
   brush = "sky";
+  /** Keep an embedded/read-only camera fixed while retaining the normal selection gestures. */
+  cameraLocked = false;
 
   private readonly el: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -212,7 +214,7 @@ export class CanvasView {
     // Space-to-pan, tldraw's shortcut. The listener is on the WINDOW because the canvas is not
     // focusable — and it stands down inside a custom pane's textarea, where a space is a space.
     window.addEventListener("keydown", (e) => {
-      if (e.code !== "Space" || isTyping(e.target)) return;
+      if (this.cameraLocked || e.code !== "Space" || isTyping(e.target)) return;
       e.preventDefault(); // a bare space would scroll the page
       if (this.space) return;
       this.space = true;
@@ -496,17 +498,22 @@ export class CanvasView {
    *  tool, a held space bar, the middle button. Dragging empty canvas is no longer one of them —
    *  on the select tool that gesture is the marquee. */
   private panMode(e?: PointerEvent): boolean {
-    return this.tool === "hand" || this.space || e?.button === 1;
+    return !this.cameraLocked && (this.tool === "hand" || this.space || e?.button === 1);
   }
 
   private down(e: PointerEvent): void {
     this.el.setPointerCapture(e.pointerId);
+    if (this.cameraLocked && (this.tool === "hand" || e.button === 1)) return;
     if (e.pointerType === "touch") {
       this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       // A second finger turns whatever was happening into a pinch. Whatever the first finger had
       // already written stays written — it was a real gesture up to this frame — but from here
       // the two fingers are the camera's.
       if (this.touches.size === 2) {
+        if (this.cameraLocked) {
+          this.gesture = { t: "none" };
+          return;
+        }
         this.gesture = this.pinchFrom();
         return;
       }
@@ -617,6 +624,8 @@ export class CanvasView {
    *  exactly where it started; `exp(±0.1)` is within a fraction of a percent of tldraw's
    *  linear `z ± 0.1z`, so it reads as the same gesture. */
   private wheel(e: WheelEvent): void {
+    // A walkthrough's embedded canvas lets the page keep the wheel and holds its own camera.
+    if (this.cameraLocked) return;
     e.preventDefault();
     const box = this.el.getBoundingClientRect();
     const { dx, dy } = wheelPixels(e, box.height);
@@ -808,6 +817,7 @@ export class CanvasView {
 
   /** Slide the camera by a screen-space delta. */
   panBy(dxScreen: number, dyScreen: number): void {
+    if (this.cameraLocked) return;
     this.ox += dxScreen;
     this.oy += dyScreen;
   }
@@ -824,6 +834,7 @@ export class CanvasView {
 
   /** Zoom about a point in CLIENT coordinates, keeping that point pinned under the cursor. */
   zoomAt(factor: number, clientX: number, clientY: number): void {
+    if (this.cameraLocked) return;
     const box = this.el.getBoundingClientRect();
     const sx = clientX - box.left;
     const sy = clientY - box.top;

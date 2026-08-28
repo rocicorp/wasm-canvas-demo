@@ -35,6 +35,7 @@ $("app").hidden = false;
 
 let walkthroughOpen = false;
 let walkThumbsDirty = false;
+let walkShapeReset = true;
 const walkthrough = $("walkthrough");
 const body = $("body");
 const foot = $("foot");
@@ -66,6 +67,7 @@ function showView(view: DemoView, scrollTop = 0, focusPanelId?: string): void {
   }
   if (walkthroughOpen) {
     walkThumbsDirty = true;
+    walkShapeReset = true;
     walkthrough.focus({ preventScroll: true });
     walkthrough.scrollTop = scrollTop;
   } else if (focusPanelId) {
@@ -125,6 +127,125 @@ showView(initialView);
 
 /** Muts queued by the PAGE (palette recolor, delete key) — committed with the gesture muts. */
 let extraMuts: Mut[] = [];
+
+// Step 04 is a second view of the SAME canvas component, aimed at one real row. Its gestures join
+// `extraMuts` in the frame loop below, so there is no walkthrough-only selection or transform
+// implementation to drift away from the drawing's.
+const walkShapeLab = $<HTMLElement>("walk-shape-lab");
+const walkShapeCanvasEl = $<HTMLCanvasElement>("walk-shape-canvas");
+const walkShapeMeta = $<HTMLElement>("walk-shape-meta");
+const walkShapeSwatches = $<HTMLElement>("walk-shape-swatches");
+const walkRobotsPaused = $<HTMLElement>("walk-robots-paused");
+const WALK_SHAPE_PREFERRED_ID = 10;
+
+let walkShapeId = WALK_SHAPE_PREFERRED_ID;
+let walkShapeInView = false;
+const walkSelectedIds = new Set<number>();
+
+const robotTicksPausedForWalkthrough = (): boolean => walkthroughOpen && walkShapeInView;
+const paintWalkRobotPause = (): void => {
+  walkRobotsPaused.hidden = !(robotTicksPausedForWalkthrough() && app.bots.enabled);
+};
+
+new IntersectionObserver(
+  ([entry]) => {
+    walkShapeInView = entry.isIntersecting && entry.intersectionRatio >= 0.25;
+    paintWalkRobotPause();
+  },
+  { root: walkthrough, threshold: [0, 0.25] },
+).observe(walkShapeLab);
+
+walkShapeSwatches.innerHTML = PALETTE.map(
+  ({ key, hex }) =>
+    `<button class="walk-shape-swatch" type="button" data-color="${key}" ` +
+    `style="--swatch:${hex}" title="recolor this row ${key}" aria-label="Recolor shape ${key}"></button>`,
+).join("");
+
+function chooseWalkShape(): ShapeRow | undefined {
+  const preferred = app.mirror.get(WALK_SHAPE_PREFERRED_ID);
+  if (preferred) return preferred;
+  return [...app.mirror.all()].find((row) => row.who !== CONFETTI_WHO) ?? app.mirror.all().next().value;
+}
+
+function walkShapeRow(): ShapeRow | undefined {
+  return app.mirror.get(walkShapeId) ?? chooseWalkShape();
+}
+
+function walkSelection(): ReadonlySet<number> {
+  walkSelectedIds.clear();
+  if (app.selected.has(walkShapeId)) walkSelectedIds.add(walkShapeId);
+  return walkSelectedIds;
+}
+
+function walkSelectionRows(): readonly ResultRow[] {
+  const row = walkShapeRow();
+  return row && app.selected.has(row.id) ? ([row] as unknown as readonly ResultRow[]) : [];
+}
+
+const walkCanvas = new CanvasView(walkShapeCanvasEl, {
+  rows: () => {
+    const row = walkShapeRow();
+    return row ? ([row] as unknown as readonly ResultRow[]) : [];
+  },
+  // Mirror the main canvas's immediate-selection fallback: membership changes synchronously,
+  // while the selection query folds the row write. The row itself still comes from the mirror.
+  selectedRows: walkSelectionRows,
+  selected: walkSelection,
+  draft: (kind, x, y, w, h, color, who) => app.writer.draft(kind, x, y, w, h, color, who),
+  select: (ids) => selectAndReport(ids.filter((id) => id === walkShapeId)),
+  toggle: (id) => {
+    if (id === walkShapeId) void app.toggle(id);
+  },
+  mark: (tag) => app.mark(tag),
+});
+walkCanvas.tool = "select";
+walkCanvas.cameraLocked = true;
+Object.assign(globalThis, { rindleWalkCanvas: walkCanvas });
+
+function resetWalkShapeEditor(): ShapeRow | undefined {
+  const row = chooseWalkShape();
+  if (!row || walkShapeCanvasEl.clientWidth === 0 || walkShapeCanvasEl.clientHeight === 0) return row;
+  walkShapeId = row.id;
+  walkShapeCanvasEl.dataset.shapeId = String(row.id);
+  walkCanvas.brush = row.color;
+  const box = aabbOf(row);
+  const padx = Math.max(12, (box.x1 - box.x0) * 0.15);
+  const pady = Math.max(12, (box.y1 - box.y0) * 0.15);
+  walkCanvas.zoomToRect({ x0: box.x0 - padx, y0: box.y0 - pady, x1: box.x1 + padx, y1: box.y1 + pady });
+  selectAndReport([row.id]);
+  walkShapeReset = false;
+  return row;
+}
+
+function renderWalkShapeEditor(): void {
+  paintWalkRobotPause();
+  if (!walkthroughOpen) return;
+  const row = walkShapeReset ? resetWalkShapeEditor() : walkShapeRow();
+  if (!row) {
+    walkShapeLab.hidden = true;
+    return;
+  }
+  walkShapeLab.hidden = false;
+  walkShapeCanvasEl.dataset.shapeId = String(row.id);
+  const selected = app.selected.has(row.id);
+  walkShapeMeta.textContent =
+    `#${row.id} · ${selected ? "selected" : "not selected"} · ` +
+    `${row.kind} · ${Math.round(row.w)}×${Math.round(row.h)} · ${row.color}`;
+  for (const swatch of walkShapeSwatches.querySelectorAll<HTMLButtonElement>(".walk-shape-swatch")) {
+    const on = swatch.dataset.color === walkCanvas.brush;
+    swatch.classList.toggle("on", on);
+    swatch.setAttribute("aria-pressed", String(on));
+  }
+  walkCanvas.render();
+}
+
+walkShapeSwatches.addEventListener("click", (event) => {
+  const swatch = (event.target as HTMLElement).closest<HTMLButtonElement>(".walk-shape-swatch");
+  if (!swatch?.dataset.color) return;
+  walkCanvas.brush = swatch.dataset.color;
+  recolorRows(walkSelectionRows() as unknown as readonly ShapeRow[], swatch.dataset.color);
+  renderWalkShapeEditor();
+});
 
 const canvas = new CanvasView($<HTMLCanvasElement>("canvas"), {
   // The canvas is no longer one query: it is one per visible cell, merged by z. `app.current`
@@ -582,6 +703,11 @@ function whoName(who: number): string {
   return who === YOU ? "you" : who === 9 ? "confetti" : `robot ${who}`;
 }
 
+function rotationDegrees(radians: number): string {
+  const degrees = ((Math.round((radians * 180) / Math.PI) % 360) + 360) % 360;
+  return `${degrees}°`;
+}
+
 // selection — an EXISTS over the `selection` table, registered once at boot. Selecting writes a
 // row; this view folds it. The query text never changes, which is the point.
 const selPanel = panel(
@@ -624,6 +750,7 @@ const selPanel = panel(
       field("y", String(Math.round(s.y))) +
       field("w", String(Math.round(s.w))) +
       field("h", String(Math.round(s.h))) +
+      field("rotation", rotationDegrees(s.rot)) +
       field("area", fmtInt(s.area)) +
       field("z", String(s.z)) +
       field("updated", `t${s.updated}`) +
@@ -706,11 +833,7 @@ const tallyPanel = panel(
   "each count is one row of the aggregate — recolor a shape and two of them move in the same commit",
 );
 
-tallyPanel.body.addEventListener("click", (ev) => {
-  const chip = (ev.target as HTMLElement).closest(".chip") as HTMLElement | null;
-  if (!chip?.dataset.color) return;
-  canvas.brush = chip.dataset.color;
-  const rows = app.selectionRows() as unknown as readonly ShapeRow[];
+function recolorRows(rows: readonly ShapeRow[], color: string): void {
   if (rows.length > 0) app.mark("recolor");
   for (const s of rows) {
     // A recolour promotes a speck out of the cached layer exactly as a drag does
@@ -720,8 +843,15 @@ tallyPanel.body.addEventListener("click", (ev) => {
     // colour it used to be. Right in the query, wrong on the glass — the layer must be promoted
     // before the writer coalesces both patches into one edit.
     if (s.who === CONFETTI_WHO) extraMuts.push({ op: "set", id: s.id, patch: { who: YOU } });
-    extraMuts.push({ op: "set", id: s.id, patch: { color: chip.dataset.color } });
+    extraMuts.push({ op: "set", id: s.id, patch: { color } });
   }
+}
+
+tallyPanel.body.addEventListener("click", (ev) => {
+  const chip = (ev.target as HTMLElement).closest(".chip") as HTMLElement | null;
+  if (!chip?.dataset.color) return;
+  canvas.brush = chip.dataset.color;
+  recolorRows(app.selectionRows() as unknown as readonly ShapeRow[], chip.dataset.color);
   tallyPanel.renderedSeq = -1; // repaint the chips' "on" state now
 });
 
@@ -845,6 +975,49 @@ for (const frame of document.querySelectorAll<HTMLElement>("[data-walk-pane]")) 
   });
 }
 
+interface WalkPaneValue {
+  el: HTMLElement;
+  value: string;
+}
+
+/** Snapshot only what a compact Step 04 card visibly renders. A query can fold a write whose
+ *  changed columns are not shown here; in that case nothing flashes, which is exactly the point:
+ *  the pulse identifies a visible consequence, not merely that some upstream work happened. */
+function walkPaneValues(view: WalkPaneView): Map<string, WalkPaneValue> {
+  const out = new Map<string, WalkPaneValue>();
+  const pane = view.source.el.id;
+  if (pane === "panel-tally") {
+    for (const el of view.body.querySelectorAll<HTMLElement>(".chip[data-color]")) {
+      out.set(el.dataset.color!, { el, value: el.innerHTML });
+    }
+    return out;
+  }
+  if (pane === "panel-selection") {
+    for (const el of view.body.querySelectorAll<HTMLElement>(".f")) {
+      const key = el.querySelector("label")?.textContent ?? "field";
+      out.set(key, { el, value: el.innerHTML });
+    }
+    const empty = view.body.querySelector<HTMLElement>(".empty");
+    if (empty) out.set("empty", { el: empty, value: empty.innerHTML });
+    return out;
+  }
+  if (pane === "panel-top" || pane === "panel-recent") {
+    let fallback = 0;
+    for (const el of view.body.querySelectorAll<HTMLElement>(".row")) {
+      const id = el.textContent?.match(/#\d+/)?.[0] ?? `row-${fallback++}`;
+      out.set(id, { el, value: el.innerHTML });
+    }
+  }
+  return out;
+}
+
+function flashWalkPaneValues(view: WalkPaneView, before: Map<string, WalkPaneValue>): void {
+  for (const [key, after] of walkPaneValues(view)) {
+    if (before.get(key)?.value === after.value) continue;
+    after.el.classList.add("walk-value-change");
+  }
+}
+
 function renderWalkPaneViews(): void {
   for (const view of walkPaneViews) {
     const { source } = view;
@@ -860,7 +1033,10 @@ function renderWalkPaneViews(): void {
     }
     const seq = source.seqOf ? source.seqOf() : live.seq;
     if (!walkThumbsDirty && seq === view.renderedSeq) continue;
-    if (view.renderedSeq >= 0 && seq !== view.renderedSeq) flash(view.el, "fold");
+    const changed = view.renderedSeq >= 0 && seq !== view.renderedSeq;
+    const granular = changed && view.el.closest("#walk-fanout") !== null;
+    const before = granular ? walkPaneValues(view) : null;
+    if (changed && !granular) flash(view.el, "fold");
     view.renderedSeq = seq;
     const code = live.def.code(live.args);
     if (code !== view.renderedCode) {
@@ -868,6 +1044,7 @@ function renderWalkPaneViews(): void {
       view.codeEl.innerHTML = highlightQuery(code);
     }
     source.render(app.current(live), view.body);
+    if (before) flashWalkPaneValues(view, before);
     view.deltaEl.textContent = live.lastDelta ? `last delta  ${live.lastDelta}` : "";
     view.hydEl.textContent = source.alwaysHyd ? `hydrated ${fmtMs(live.hydrateMs)}` : "";
   }
@@ -1064,9 +1241,14 @@ function frame(now: number): void {
 
   // 1 — writes. One transaction per writer per frame; the Writer serializes commits internally,
   // so a burst never interleaves two store.write calls.
-  const muts = [...canvas.drainMuts(), ...extraMuts];
+  const muts = [...canvas.drainMuts(), ...walkCanvas.drainMuts(), ...extraMuts];
   extraMuts = [];
-  const botMuts = app.bots.enabled ? app.bots.tick(dt, now, canvas.dragging) : [];
+  // Both CanvasView instances expose the ids their current gesture is writing. Exclude that
+  // union immediately, rather than waiting for ownership changes to reach the mirror.
+  const dragging = [...(canvas.dragging ?? []), ...(walkCanvas.dragging ?? [])];
+  const botExcludes = dragging.length > 0 ? new Set(dragging) : null;
+  const botMuts =
+    app.bots.enabled && !robotTicksPausedForWalkthrough() ? app.bots.tick(dt, now, botExcludes) : [];
   if (muts.length > 0) void app.commit(muts);
   // The robots' commit is NOT recorded: ⌘Z is for what your hand did, and a page where undo
   // stepped back through the ambient writers' drift would never reach your own last gesture.
@@ -1126,7 +1308,10 @@ function frame(now: number): void {
     hyd.textContent = p.alwaysHyd ? `hydrated ${fmtMs(live.hydrateMs)}` : "";
   }
 
-  if (walkthroughOpen) renderWalkPaneViews();
+  if (walkthroughOpen) {
+    renderWalkShapeEditor();
+    renderWalkPaneViews();
+  }
 
   drawSpark();
   if (now - lastHud > 200) {

@@ -128,6 +128,7 @@ try {
     (async () => {
       const app = globalThis.rindleDraw;
       const queryViews = app.queries().map((q) => q.view);
+      await app.setBotRate(96);
       const canvasRect = document.getElementById('canvas').getBoundingClientRect();
       const defaultWalkthrough = location.hash === '' && !document.getElementById('walkthrough').hidden;
       document.querySelector('[data-view="walkthrough"]').click();
@@ -149,12 +150,200 @@ try {
       const paneThumbs = [...document.querySelectorAll('.walk-pane-frame')];
       const viewSwitch = document.getElementById('viewtabs').getBoundingClientRect();
       const activeViewTab = getComputedStyle(document.querySelector('.viewtab.on'));
-      essay.scrollTop = Math.min(720, essay.scrollHeight - essay.clientHeight);
-      const scrollBeforeCard = essay.scrollTop;
       const recentCard = document.querySelector('[data-walk-pane="recent"]');
       const cardA11y = recentCard
         ? { role: recentCard.getAttribute('role'), tabIndex: recentCard.tabIndex }
         : null;
+
+      const editorLab = document.getElementById('walk-shape-lab');
+      editorLab.scrollIntoView({ block: 'center' });
+      await new Promise((r) => setTimeout(r, 100));
+      const robotSnapshot = () => new Map(
+        [...app.mirror.all()]
+          .filter((row) => row.who >= 1 && row.who <= 3)
+          .map((row) => [row.id, { x: row.x, y: row.y }]),
+      );
+      const movedFrom = (before) => [...app.mirror.all()].filter((row) => {
+        const old = before.get(row.id);
+        return old && (old.x !== row.x || old.y !== row.y);
+      }).length;
+      const pausedBefore = robotSnapshot();
+      await new Promise((r) => setTimeout(r, 300));
+      const pausedMoved = movedFrom(pausedBefore);
+      const pausedBadgeVisible = !document.getElementById('walk-robots-paused').hidden;
+
+      // Step 04 is the real CanvasView aimed at one row. Drive its empty-space deselection, shape
+      // selection and standard SE handle before checking that the maintained cards folded.
+      const editorCanvas = document.getElementById('walk-shape-canvas');
+      const walkCanvas = globalThis.rindleWalkCanvas;
+      editorCanvas.setPointerCapture = () => {};
+      editorCanvas.releasePointerCapture = () => {};
+      const editorId = Number(editorCanvas?.dataset.shapeId);
+      const editorBefore = app.mirror.get(editorId);
+      const tallyBefore = document.querySelector('[data-walk-pane="tally"] .pbody')?.textContent ?? '';
+      const selectionBodies = () => [...document.querySelectorAll('[data-walk-pane="selection"] .pbody')];
+      const selectionShowsRow = () => selectionBodies().every((body) => body.textContent.includes('#' + editorId));
+      const selectionIsEmpty = () => selectionBodies().every((body) => !body.textContent.includes('#' + editorId));
+      const editorBox = editorCanvas.getBoundingClientRect();
+      const toClient = (wx, wy) => {
+        const view = walkCanvas.viewport();
+        return {
+          x: editorBox.left + (wx - view.x0) * walkCanvas.zoom,
+          y: editorBox.top + (wy - view.y0) * walkCanvas.zoom,
+        };
+      };
+      const pointer = (type, wx, wy, pointerId) => {
+        const p = toClient(wx, wy);
+        editorCanvas.dispatchEvent(new PointerEvent(type, {
+          pointerId, clientX: p.x, clientY: p.y, bubbles: true, cancelable: true,
+        }));
+      };
+      const settleEditor = async () => {
+        for (let i = 0; i < 4; i++) await new Promise((r) => requestAnimationFrame(r));
+        await new Promise((r) => setTimeout(r, 100));
+      };
+
+      await settleEditor();
+      const initiallySelected = app.selected.has(editorId) && selectionShowsRow();
+      const rotationLabel = [...document.querySelectorAll('#walk-fanout [data-walk-pane="selection"] .f label')]
+        .find((label) => label.textContent === 'rotation');
+      const expectedRotation =
+        ((Math.round(((editorBefore?.rot ?? 0) * 180) / Math.PI) % 360) + 360) % 360 + '°';
+      const rotationShown = rotationLabel?.closest('.f')?.querySelector('b')?.textContent === expectedRotation;
+      const initialView = walkCanvas.viewport();
+      const emptyX = initialView.x0 + 4 / walkCanvas.zoom;
+      const emptyY = initialView.y0 + 4 / walkCanvas.zoom;
+      pointer('pointerdown', emptyX, emptyY, 70);
+      pointer('pointerup', emptyX, emptyY, 70);
+      await settleEditor();
+      const deselected = !app.selected.has(editorId) && selectionIsEmpty();
+
+      const rowToSelect = app.mirror.get(editorId);
+      pointer('pointerdown', rowToSelect.x, rowToSelect.y, 71);
+      pointer('pointerup', rowToSelect.x, rowToSelect.y, 71);
+      await settleEditor();
+      const reselected = app.selected.has(editorId) && selectionShowsRow();
+
+      const swatch = [...document.querySelectorAll('.walk-shape-swatch')]
+        .find((button) => button.dataset.color !== editorBefore?.color);
+      swatch?.click();
+      await settleEditor();
+      const recolorFlash =
+        document.querySelectorAll('#walk-fanout [data-walk-pane="tally"] .chip.walk-value-change').length >= 2 &&
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="selection"] .f.walk-value-change label')]
+          .some((label) => label.textContent === 'color');
+
+      const beforeResize = app.mirror.get(editorId);
+      const frame = globalThis.rindleGeom.frameOf([beforeResize]);
+      const handle = globalThis.rindleGeom.handlePoints(frame, 1 / walkCanvas.zoom).find((p) => p.id === 'se');
+      pointer('pointerdown', handle.x, handle.y, 72);
+      pointer('pointermove', handle.x + 260, handle.y + 100, 72);
+      pointer('pointerup', handle.x + 260, handle.y + 100, 72);
+      await settleEditor();
+      const resizedFields = new Set(
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="selection"] .f.walk-value-change label')]
+          .map((label) => label.textContent)
+      );
+      const resizeFlash =
+        ['w', 'h', 'area'].every((field) => resizedFields.has(field)) &&
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="top"] .row.walk-value-change')]
+          .some((row) => row.textContent.includes('#' + editorId));
+
+      const beforeMove = app.mirror.get(editorId);
+      pointer('pointerdown', beforeMove.x, beforeMove.y, 73);
+      pointer('pointermove', beforeMove.x - 10, beforeMove.y, 73);
+      pointer('pointerup', beforeMove.x - 10, beforeMove.y, 73);
+      await settleEditor();
+      const editorAfter = app.mirror.get(editorId);
+      const movedFields = new Set(
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="selection"] .f.walk-value-change label')]
+          .map((label) => label.textContent)
+      );
+      const moveFlash =
+        movedFields.has('x') &&
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="recent"] .row.walk-value-change')]
+          .some((row) => row.textContent.includes('#' + editorId));
+
+      // Leave the lab unselected: both the chrome and the Selection card should now be empty.
+      pointer('pointerdown', editorAfter.x + editorAfter.w * 4 + 100, editorAfter.y + editorAfter.h * 4 + 100, 74);
+      pointer('pointerup', editorAfter.x + editorAfter.w * 4 + 100, editorAfter.y + editorAfter.h * 4 + 100, 74);
+      await settleEditor();
+      const deselectFlash = !!document.querySelector(
+        '#walk-fanout [data-walk-pane="selection"] .empty.walk-value-change'
+      );
+
+      // This CanvasView keeps editing gestures but gives wheel and middle-drag back instead of
+      // moving its camera. The main canvas remains camera-enabled.
+      const cameraBefore = walkCanvas.viewport();
+      const wheelAllowed = editorCanvas.dispatchEvent(new WheelEvent('wheel', {
+        deltaX: 120, deltaY: 80, bubbles: true, cancelable: true,
+      }));
+      const centerX = (editorBox.left + editorBox.right) / 2;
+      const centerY = (editorBox.top + editorBox.bottom) / 2;
+      editorCanvas.dispatchEvent(new PointerEvent('pointerdown', {
+        pointerId: 75, button: 1, clientX: centerX, clientY: centerY, bubbles: true, cancelable: true,
+      }));
+      editorCanvas.dispatchEvent(new PointerEvent('pointermove', {
+        pointerId: 75, button: 1, clientX: centerX + 80, clientY: centerY + 40, bubbles: true, cancelable: true,
+      }));
+      editorCanvas.dispatchEvent(new PointerEvent('pointerup', {
+        pointerId: 75, button: 1, clientX: centerX + 80, clientY: centerY + 40, bubbles: true, cancelable: true,
+      }));
+      await settleEditor();
+      const cameraAfter = walkCanvas.viewport();
+      const cameraLocked =
+        walkCanvas.cameraLocked &&
+        wheelAllowed &&
+        Math.abs(cameraAfter.x0 - cameraBefore.x0) < 0.001 &&
+        Math.abs(cameraAfter.y0 - cameraBefore.y0) < 0.001 &&
+        Math.abs(cameraAfter.x1 - cameraBefore.x1) < 0.001 &&
+        Math.abs(cameraAfter.y1 - cameraBefore.y1) < 0.001;
+      const editor = {
+        present: !!editorCanvas && Number.isFinite(editorId) && !!swatch,
+        before: editorBefore,
+        after: editorAfter,
+        wantedColor: swatch?.dataset.color,
+        sharedCanvas: walkCanvas?.constructor === globalThis.rindleCanvas?.constructor,
+        initiallySelected,
+        rotationShown,
+        deselected,
+        reselected,
+        cameraLocked,
+        granularFlashes: recolorFlash && resizeFlash && moveFlash && deselectFlash,
+        deselectedAgain:
+          !app.selected.has(editorId) &&
+          selectionIsEmpty() &&
+          document.getElementById('walk-shape-meta').textContent.includes('not selected'),
+        changed:
+          editorAfter?.color === swatch?.dataset.color &&
+          editorAfter?.w > (editorBefore?.w ?? Infinity) &&
+          editorAfter?.h > (editorBefore?.h ?? Infinity) &&
+          editorAfter?.x < (beforeMove?.x ?? -Infinity),
+        tallyChanged:
+          tallyBefore !== (document.querySelector('[data-walk-pane="tally"] .pbody')?.textContent ?? ''),
+        recentUpdated:
+          document.querySelector('[data-walk-pane="recent"] .pbody')?.textContent.includes('#' + editorId) ?? false,
+        enteredLargest:
+          document.querySelector('[data-walk-pane="top"] .pbody')?.textContent.includes('#' + editorId) ?? false,
+        wholeCardFlashes: document.querySelectorAll('#walk-fanout .walk-pane-card.fold').length,
+        queryCountHeld: app.queries().length === queryViews.length,
+      };
+
+      essay.scrollTop = 0;
+      await new Promise((r) => setTimeout(r, 100));
+      const resumedBefore = robotSnapshot();
+      await new Promise((r) => setTimeout(r, 300));
+      const resumedMoved = movedFrom(resumedBefore);
+      const robotPause = {
+        pausedMoved,
+        resumedMoved,
+        badgeVisible: pausedBadgeVisible,
+        badgeHiddenAfter: document.getElementById('walk-robots-paused').hidden,
+        rateHeld: app.bots.enabled && app.bots.perSec === 96,
+      };
+      await app.setBotRate(0);
+      essay.scrollTop = Math.min(720, essay.scrollHeight - essay.clientHeight);
+      const scrollBeforeCard = essay.scrollTop;
       const opened = {
         visible: !essay.hidden,
         mode: document.getElementById('app').classList.contains('walk-mode'),
@@ -183,23 +372,67 @@ try {
         bodyInert: document.getElementById('body').inert,
         defaultWalkthrough,
         permalinks:
-          sourceLinks.length === 9 &&
+          sourceLinks.length === 7 &&
           sourceLinks.every((link) => link.hash.startsWith('#L') && link.hash.includes('-L')) &&
           sourceLinks.filter((link) =>
             link.href.includes('/blob/73e0384e5d5b77bb12f7260cd296518876502816/')
-          ).length === 8 &&
+          ).length === 6 &&
           sourceLinks.some((link) => link.href.includes('/blob/main/src/mutators.ts')),
         paneThumbs:
-          paneThumbs.length === 7 &&
+          paneThumbs.length === 6 &&
           paneThumbs.every((thumb) =>
             thumb.querySelector('.panel.walk-pane-card') &&
             !thumb.querySelector('.panel.walk-pane-card[id]')
           ) &&
           !!document.querySelector('[data-walk-pane="recent"] .pbody .row') &&
-          !!document.querySelector('[data-walk-pane="layers"] .pbody .lrow') &&
           [...document.querySelectorAll('[data-walk-pane="recent"] .pbody')].every(
             (body) => body.textContent === document.querySelector('#panel-recent .pbody')?.textContent
           ),
+        fanoutCardSizes: [...document.querySelectorAll('#walk-fanout .walk-pane-frame')].map((frame) => {
+          const card = frame.querySelector('.walk-pane-card');
+          const frameBox = frame.getBoundingClientRect();
+          return {
+            name: frame.dataset.walkPane,
+            frameHeight: frame.clientHeight,
+            contentHeight: card?.scrollHeight ?? 0,
+            frameWidth: frame.clientWidth,
+            contentWidth: card?.scrollWidth ?? 0,
+            overflowing: [...(card?.querySelectorAll('*') ?? [])]
+              .filter((el) => {
+                const box = el.getBoundingClientRect();
+                return box.width > 0 && box.height > 0 && (box.left < frameBox.left - 1 || box.right > frameBox.right + 1);
+              })
+              .map((el) =>
+                el.tagName.toLowerCase() + '.' + el.className + ':' +
+                Math.ceil(el.getBoundingClientRect().right - frameBox.right)
+            ),
+          };
+        }),
+        fanoutOrder:
+          [...document.querySelectorAll('#walk-fanout .walk-pane-frame')]
+            .map((frame) => frame.dataset.walkPane)
+            .join(',') === 'selection,tally,top,recent',
+        fanoutRecentRows:
+          [...document.querySelectorAll('#walk-fanout [data-walk-pane="recent"] .pbody .row')]
+            .filter((row) => getComputedStyle(row).display !== 'none').length,
+        fanoutPaletteNeutral: (() => {
+          const active = document.querySelector('#walk-fanout [data-walk-pane="tally"] .chip.on');
+          const inactive = document.querySelector('#walk-fanout [data-walk-pane="tally"] .chip:not(.on)');
+          return !!active && !!inactive && getComputedStyle(active).borderColor === getComputedStyle(inactive).borderColor;
+        })(),
+        fanoutFlanksEditor: (() => {
+          const lab = document.getElementById('walk-shape-lab').getBoundingClientRect();
+          const selection = document.querySelector('#walk-fanout [data-walk-pane="selection"]').getBoundingClientRect();
+          const palette = document.querySelector('#walk-fanout [data-walk-pane="tally"]').getBoundingClientRect();
+          const hiddenQuery = document.querySelector('#walk-fanout .walk-pane-card .code');
+          return (
+            selection.right < lab.left &&
+            lab.right < palette.left &&
+            selection.top < lab.bottom &&
+            palette.top < lab.bottom &&
+            getComputedStyle(hiddenQuery).display === 'none'
+          );
+        })(),
         queryCountHeld: app.queries().length === queryViews.length,
         prominentViewSwitch:
           viewSwitch.height >= 34 &&
@@ -234,6 +467,8 @@ try {
       document.dispatchEvent(browserHistoryShortcut);
       return {
         ...opened,
+        editor,
+        robotPause,
         cardA11y,
         cardOpenedCanvas,
         focusedCanvasPane,
@@ -790,6 +1025,14 @@ try {
         return old && (old.x !== r.x || old.y !== r.y);
       }).length;
       const stopped = await draw.setBotRate(0, cv.viewport());
+      document.querySelector('[data-view="walkthrough"]').click();
+      for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r));
+      const walkBox = document.getElementById('walk-shape-lab').getBoundingClientRect();
+      const walkStage = document.getElementById('walk-shape-stage').getBoundingClientRect();
+      const walkCanvas = document.getElementById('walk-shape-canvas');
+      const walkCanvasBox = walkCanvas.getBoundingClientRect();
+      const walkSwatches = [...document.querySelectorAll('.walk-shape-swatch')]
+        .map((el) => el.getBoundingClientRect());
       return {
         innerWidth,
         innerHeight,
@@ -811,6 +1054,16 @@ try {
         touchTargets: targetSizes.every((r) => r.width >= 39.5 && r.height >= 39.5),
         touchAction: getComputedStyle(canvas).touchAction,
         noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
+        walkEditor: {
+          contained: walkBox.left >= 0 && walkBox.right <= innerWidth && walkStage.width > 250,
+          canvasTarget:
+            walkCanvasBox.width === walkStage.width &&
+            walkCanvasBox.height === walkStage.height &&
+            getComputedStyle(walkCanvas).touchAction === 'none',
+          colorTargets: walkSwatches.every((r) => r.width >= 39.5 && r.height >= 39.5),
+          noHorizontalOverflow:
+            document.getElementById('walkthrough').scrollWidth <= document.getElementById('walkthrough').clientWidth,
+        },
         livingConfetti: {
           beforeDrop,
           born: lateDrop.awakened,
@@ -853,8 +1106,8 @@ try {
   if (!walkthrough.visible || !walkthrough.mode || !walkthrough.closed) {
     fail(`the walkthrough did not open and close cleanly: ${JSON.stringify(walkthrough)}`);
   }
-  if (walkthrough.steps !== 6 || !walkthrough.paired) {
-    fail(`the walkthrough is not six paired code/prose sections: ${JSON.stringify(walkthrough)}`);
+  if (walkthrough.steps !== 5 || !walkthrough.paired) {
+    fail(`the walkthrough is not five paired code/prose sections: ${JSON.stringify(walkthrough)}`);
   }
   if (!walkthrough.highlighted) fail("the walkthrough source was not syntax highlighted");
   if (!walkthrough.clientAPIExamples) fail("the walkthrough is not teaching the @rindle/client API");
@@ -873,6 +1126,51 @@ try {
   if (!walkthrough.defaultWalkthrough) fail("an unqualified URL did not open the walkthrough by default");
   if (!walkthrough.permalinks) fail("the walkthrough source links do not target the latest main revision");
   if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");
+  if (
+    !walkthrough.fanoutCardSizes.every(
+      (card) => card.contentHeight <= card.frameHeight + 1 && card.overflowing.length === 0
+    )
+  ) {
+    fail(`the Step 04 live cards clip their query or result content: ${JSON.stringify(walkthrough.fanoutCardSizes)}`);
+  }
+  if (!walkthrough.fanoutOrder || walkthrough.fanoutRecentRows !== 4 || !walkthrough.fanoutPaletteNeutral) {
+    fail(`the Step 04 cards lost their compact preview treatment: ${JSON.stringify(walkthrough)}`);
+  }
+  if (!walkthrough.fanoutFlanksEditor) {
+    fail(`Selection and Palette do not flank the Step 04 editor: ${JSON.stringify(walkthrough)}`);
+  }
+  if (
+    !walkthrough.editor?.present ||
+    !walkthrough.editor.sharedCanvas ||
+    !walkthrough.editor.initiallySelected ||
+    !walkthrough.editor.rotationShown ||
+    !walkthrough.editor.deselected ||
+    !walkthrough.editor.reselected ||
+    !walkthrough.editor.deselectedAgain ||
+    !walkthrough.editor.cameraLocked ||
+    !walkthrough.editor.granularFlashes ||
+    walkthrough.editor.wholeCardFlashes !== 0 ||
+    !walkthrough.editor.changed
+  ) {
+    fail(`the walkthrough shape editor did not edit its real row: ${JSON.stringify(walkthrough.editor)}`);
+  }
+  if (
+    !walkthrough.editor.tallyChanged ||
+    !walkthrough.editor.recentUpdated ||
+    !walkthrough.editor.enteredLargest
+  ) {
+    fail(`the Step 04 panels did not fold the edited row together: ${JSON.stringify(walkthrough.editor)}`);
+  }
+  if (!walkthrough.editor.queryCountHeld) fail("the walkthrough shape editor registered a new query");
+  if (
+    walkthrough.robotPause.pausedMoved !== 0 ||
+    walkthrough.robotPause.resumedMoved === 0 ||
+    !walkthrough.robotPause.badgeVisible ||
+    !walkthrough.robotPause.badgeHiddenAfter ||
+    !walkthrough.robotPause.rateHeld
+  ) {
+    fail(`robots did not pause and resume around Step 04: ${JSON.stringify(walkthrough.robotPause)}`);
+  }
   if (!walkthrough.queryCountHeld) fail("opening the walkthrough registered duplicate queries for its live cards");
   if (!walkthrough.prominentViewSwitch) fail("the canvas/walkthrough switch lost its prominent segmented styling");
   if (!walkthrough.canvasHeldSize) fail("opening the walkthrough collapsed the canvas underneath it");
@@ -987,6 +1285,14 @@ try {
     fail(`mobile canvas controls are not touch-sized: ${JSON.stringify(mobile)}`);
   }
   if (!mobile.noHorizontalOverflow) fail(`the mobile page overflows horizontally: ${JSON.stringify(mobile)}`);
+  if (
+    !mobile.walkEditor.contained ||
+    !mobile.walkEditor.canvasTarget ||
+    !mobile.walkEditor.colorTargets ||
+    !mobile.walkEditor.noHorizontalOverflow
+  ) {
+    fail(`the walkthrough shape editor is not usable on mobile: ${JSON.stringify(mobile.walkEditor)}`);
+  }
   if (Math.abs(mobile.backingScale - 3) > 0.02) {
     fail(`the 3x screen did not receive a 3x backing store: ${JSON.stringify(mobile)}`);
   }
