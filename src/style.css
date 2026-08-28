@@ -604,8 +604,7 @@ body {
   border: 0;
   border-radius: 0;
 }
-.walk-pane-frame .walk-pane-card .fork,
-.walk-pane-frame .walk-pane-card .check {
+.walk-pane-frame .walk-pane-card .fork {
   display: none;
 }
 .walk-pane-frame .walk-pane-card header {
@@ -908,11 +907,6 @@ body {
   text-transform: uppercase;
   color: var(--dim);
 }
-/* .qhead in the selector out-specifies the button's later `all: unset` reset, which would
-   otherwise re-inherit the container's pointer-events: none and make it unclickable. */
-.qfloat .qhead .check {
-  pointer-events: auto;
-}
 .qfloat .code {
   margin-bottom: 0;
 }
@@ -1013,19 +1007,6 @@ body {
   font-size: 10.5px;
   color: var(--dim);
 }
-.panel .check,
-.qfloat .check {
-  all: unset;
-  cursor: pointer;
-  color: var(--dim);
-  font-size: 12px;
-  padding: 0 4px;
-}
-.panel .check:hover,
-.qfloat .check:hover {
-  color: var(--good);
-}
-
 /* The query pane: the ACTUAL builder chain the panel registered, highlighted. Punctuation
    stays dim; the colored tokens are the schema (text), the builder verbs (accent), strings
    (green) and numbers (amber). */

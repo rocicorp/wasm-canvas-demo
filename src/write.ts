@@ -5,8 +5,7 @@
 //   2. `store.write(...)` — timed. The call is synchronous and in-process: the commit, the
 //      derivation of every affected pipeline, and the fold of every affected view all happen
 //      inside it, so its wall time IS write→visible, not a lower bound on it;
-//   3. apply the same rows to the JS mirror, so the differential is always comparing two views
-//      of one state.
+//   3. apply the same rows to the JS mirror, so future writes use the current state.
 //
 // Muts from one frame are COALESCED per row before committing — sixteen pointermoves between two
 // paints are one edit with the last position, which is what an app would write, and it keeps
@@ -89,7 +88,7 @@ export class Writer {
    *  `await`: the second would build its edits' `old` rows from a mirror the first had not yet
    *  caught up, hand the engine a stale `old`, and desynchronize the views from the base — which
    *  is not hypothetical: the browser smoke test's scripted writes raced the page's frame loop
-   *  and the differential caught it on the first run. */
+   *  and the browser smoke test caught it on the first run. */
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(store: DrawStore, mirror: Mirror) {
@@ -329,7 +328,7 @@ export function maintained(row: ShapeRow): ShapeRow {
 /** Apply a patch to a row, keeping the maintained columns maintained: `area` follows w×h,
  *  `c0`–`c3` follow the centre, and `updated` is the commit's clock tick.
  *
- *  The cell recompute is what makes a shape dragged across a cell boundary a clean
+ *  The cell update is what makes a shape dragged across a cell boundary a clean
  *  Remove-from-one-view + Add-to-the-other: the engine's `filter_push` splits the Edit by each
  *  cell query's predicate, and the push index routes it to BOTH the old and the new cell's
  *  connection because an Edit contributes `row[col]` and `old[col]`. Nothing here has to know

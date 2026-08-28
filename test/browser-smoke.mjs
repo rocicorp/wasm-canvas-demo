@@ -914,7 +914,7 @@ try {
 
   if (!process.exitCode) {
     process.stdout.write(
-      `\n✅ the page boots, draws, pans, zooms, writes and self-checks in a real browser` +
+      `\n✅ the page boots, draws, pans, zooms, writes and maintains live views in a real browser` +
         ` (${report.cellsAfterPan} cells live, +${report.panSubscribed} across the pan,` +
         ` level ${report.levelBeforeZoom}→${report.levelAfterZoom})\n`,
     );

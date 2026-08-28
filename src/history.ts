@@ -16,9 +16,8 @@
 //   * it costs the STEP, not the drawing. Undoing a 512-shape drag is 512 row-writes; undoing a
 //     32,000-row confetti drop is 32,000 removes in one commit. Both are the same commit the
 //     forward gesture made, run backwards, and both are timed on screen like any other write.
-//   * `view-after-undo == fresh-query` is not a new contract. It is the SAME contract, which is
-//     why the differential e2e can undo a scripted session step by step and check every query
-//     after each one without a single new oracle.
+//   * `view-after-undo` follows the same live-query contract as every other write: each view
+//     folds the inverse delta without any special snapshot or refresh path.
 //
 // Two design notes worth the words:
 //

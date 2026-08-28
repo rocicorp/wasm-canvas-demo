@@ -20,6 +20,5 @@ Still not tldraw, and deliberate for now:
 
 Open questions, unrelated:
 
-- rm differential? / when is it run in app?
 - where queries used?
 - underscore/lodash/coffeescript style literate overview
