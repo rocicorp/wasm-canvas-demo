@@ -986,6 +986,10 @@ body {
   border-radius: 9px;
   padding: 10px 12px;
 }
+.panel:focus {
+  outline: 2px solid var(--good);
+  outline-offset: 3px;
+}
 .panel header {
   display: flex;
   align-items: baseline;
@@ -1371,6 +1375,16 @@ button.ghost:hover {
 }
 
 /* fold pulse — a panel briefly lifts when its view folds a delta */
+@keyframes walk-focus {
+  0% {
+    border-color: var(--good);
+    box-shadow: 0 0 0 2px rgba(62, 207, 142, 0.5), 0 0 22px rgba(62, 207, 142, 0.25);
+  }
+  100% {
+    border-color: var(--panel-edge);
+    box-shadow: none;
+  }
+}
 @keyframes fold {
   0% {
     border-color: var(--accent);
@@ -1384,6 +1398,9 @@ button.ghost:hover {
 .panel.fold,
 .qfloat.fold {
   animation: fold 380ms ease-out;
+}
+.panel.walk-focus {
+  animation: walk-focus 900ms ease-out;
 }
 @keyframes okflash {
   0% {

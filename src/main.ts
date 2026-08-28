@@ -44,6 +44,7 @@ type DemoView = "canvas" | "walkthrough";
 type DemoHistoryState = {
   demoView?: DemoView;
   walkthroughScrollTop?: number;
+  focusPanelId?: string;
 };
 
 // The essay's snippets use the same small tokenizer as the live query panels. It is deliberately
@@ -53,7 +54,7 @@ for (const source of document.querySelectorAll<HTMLElement>(".walk-source")) {
   source.innerHTML = highlightQuery(source.textContent ?? "");
 }
 
-function showView(view: DemoView, scrollTop = 0): void {
+function showView(view: DemoView, scrollTop = 0, focusPanelId?: string): void {
   walkthroughOpen = view === "walkthrough";
   walkthrough.hidden = !walkthroughOpen;
   body.inert = walkthroughOpen;
@@ -68,10 +69,12 @@ function showView(view: DemoView, scrollTop = 0): void {
     walkThumbsDirty = true;
     walkthrough.focus({ preventScroll: true });
     walkthrough.scrollTop = scrollTop;
+  } else if (focusPanelId) {
+    focusCanvasPanel(focusPanelId);
   }
 }
 
-function navigateView(view: DemoView): void {
+function navigateView(view: DemoView, focusPanelId?: string): void {
   const current = walkthroughOpen ? "walkthrough" : "canvas";
   if (current === view) return;
 
@@ -84,8 +87,8 @@ function navigateView(view: DemoView): void {
       "",
       "#walkthrough",
     );
-    history.pushState({ demoView: "canvas", walkthroughScrollTop: scrollTop }, "", `${location.pathname}${location.search}`);
-    showView("canvas");
+    history.pushState({ demoView: "canvas", walkthroughScrollTop: scrollTop, focusPanelId }, "", `${location.pathname}${location.search}`);
+    showView("canvas", 0, focusPanelId);
     return;
   }
 
@@ -112,7 +115,7 @@ window.addEventListener("popstate", () => {
   const view: DemoView = location.hash === "#walkthrough" ? "walkthrough" : "canvas";
   const state = history.state as DemoHistoryState | null;
   const scrollTop = view === "walkthrough" && typeof state?.walkthroughScrollTop === "number" ? state.walkthroughScrollTop : 0;
-  showView(view, scrollTop);
+  showView(view, scrollTop, view === "canvas" ? state?.focusPanelId : undefined);
 });
 showView(location.hash === "#walkthrough" ? "walkthrough" : "canvas");
 
@@ -485,6 +488,8 @@ interface Panel {
 }
 
 const panels: Panel[] = [];
+let walkFocusTimer: number | undefined;
+let walkFocusedPanel: HTMLElement | undefined;
 
 function panelMarkup(title: string, note?: string): string {
   return (
@@ -535,6 +540,23 @@ function panel(
   });
   panels.push(p);
   return p;
+}
+
+function focusCanvasPanel(id: string): void {
+  const target = panels.find((p) => p.el.id === id);
+  if (!target) return;
+  if (walkFocusTimer !== undefined) window.clearTimeout(walkFocusTimer);
+  walkFocusedPanel?.classList.remove("walk-focus");
+  target.el.tabIndex = -1;
+  target.el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  target.el.focus({ preventScroll: true });
+  flash(target.el, "walk-focus");
+  walkFocusedPanel = target.el;
+  walkFocusTimer = window.setTimeout(() => {
+    target.el.classList.remove("walk-focus");
+    walkFocusedPanel = undefined;
+    walkFocusTimer = undefined;
+  }, 900);
 }
 
 /** The ✓: this pane's differential, in front of you. The phrasing names which fresh half ran —
@@ -802,7 +824,7 @@ for (const frame of document.querySelectorAll<HTMLElement>("[data-walk-pane]")) 
   frame.setAttribute("role", "button");
   frame.tabIndex = 0;
   frame.setAttribute("aria-label", `Open the canvas demo for the ${paneName} component`);
-  const openCanvas = () => navigateView("canvas");
+  const openCanvas = () => navigateView("canvas", `panel-${frame.dataset.walkPane}`);
   frame.addEventListener("click", openCanvas);
   frame.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
