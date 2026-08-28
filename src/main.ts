@@ -116,7 +116,11 @@ window.addEventListener("popstate", () => {
   const scrollTop = view === "walkthrough" && typeof state?.walkthroughScrollTop === "number" ? state.walkthroughScrollTop : 0;
   showView(view, scrollTop, view === "canvas" ? state?.focusPanelId : undefined);
 });
-showView(location.hash === "#walkthrough" ? "walkthrough" : "canvas");
+const initialView: DemoView = location.hash === "#canvas" ? "canvas" : "walkthrough";
+if (initialView === "walkthrough" && location.hash !== "#walkthrough") {
+  history.replaceState({ demoView: "walkthrough", walkthroughScrollTop: 0 }, "", "#walkthrough");
+}
+showView(initialView);
 
 // ---------------------------------------------------------------------------------------------
 // Canvas + gestures
@@ -329,6 +333,10 @@ document.addEventListener("keydown", (e) => {
   }
   const k = e.key.toLowerCase();
   const cmd = e.metaKey || e.ctrlKey;
+
+  // Leave browser history shortcuts alone. On the canvas, bare arrows nudge the selection, but
+  // Cmd/Ctrl + Left/Right belongs to the browser's Back/Forward navigation.
+  if (cmd && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
 
   // The clipboard-shaped keys first, so ⌘Z is never read as the `z` of a tool shortcut.
   if (cmd && k === "z") {
