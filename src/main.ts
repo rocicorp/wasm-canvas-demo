@@ -84,19 +84,19 @@ function navigateView(view: DemoView, focusPanelId?: string): void {
     history.replaceState(
       { ...(history.state as DemoHistoryState | null), demoView: "walkthrough", walkthroughScrollTop: scrollTop },
       "",
-      "#walkthrough",
+      `${location.pathname}${location.search}`,
     );
-    history.pushState({ demoView: "canvas", walkthroughScrollTop: scrollTop, focusPanelId }, "", `${location.pathname}${location.search}`);
+    history.pushState({ demoView: "canvas", walkthroughScrollTop: scrollTop, focusPanelId }, "", "#canvas");
     showView("canvas", 0, focusPanelId);
     return;
   }
 
-  history.pushState({ demoView: "walkthrough", walkthroughScrollTop: 0 }, "", "#walkthrough");
+  history.pushState({ demoView: "walkthrough", walkthroughScrollTop: 0 }, "", `${location.pathname}${location.search}`);
   showView("walkthrough");
 }
 
 walkthrough.addEventListener("scroll", () => {
-  if (!walkthroughOpen || location.hash !== "#walkthrough") return;
+  if (!walkthroughOpen) return;
   const state = history.state as DemoHistoryState | null;
   if (state?.demoView === "walkthrough" && state.walkthroughScrollTop === walkthrough.scrollTop) return;
   history.replaceState(
@@ -111,15 +111,12 @@ for (const tab of viewTabs) {
 }
 $("walk-open-demo").addEventListener("click", () => navigateView("canvas"));
 window.addEventListener("popstate", () => {
-  const view: DemoView = location.hash === "#walkthrough" ? "walkthrough" : "canvas";
+  const view: DemoView = location.hash === "#canvas" ? "canvas" : "walkthrough";
   const state = history.state as DemoHistoryState | null;
   const scrollTop = view === "walkthrough" && typeof state?.walkthroughScrollTop === "number" ? state.walkthroughScrollTop : 0;
   showView(view, scrollTop, view === "canvas" ? state?.focusPanelId : undefined);
 });
 const initialView: DemoView = location.hash === "#canvas" ? "canvas" : "walkthrough";
-if (initialView === "walkthrough" && location.hash !== "#walkthrough") {
-  history.replaceState({ demoView: "walkthrough", walkthroughScrollTop: 0 }, "", "#walkthrough");
-}
 showView(initialView);
 
 // ---------------------------------------------------------------------------------------------

@@ -129,7 +129,7 @@ try {
       const app = globalThis.rindleDraw;
       const queryViews = app.queries().map((q) => q.view);
       const canvasRect = document.getElementById('canvas').getBoundingClientRect();
-      const defaultWalkthrough = location.hash === '#walkthrough' && !document.getElementById('walkthrough').hidden;
+      const defaultWalkthrough = location.hash === '' && !document.getElementById('walkthrough').hidden;
       document.querySelector('[data-view="walkthrough"]').click();
       await new Promise((r) => requestAnimationFrame(r));
 
@@ -208,7 +208,8 @@ try {
 
       recentCard?.click();
       await new Promise((r) => requestAnimationFrame(r));
-      const cardOpenedCanvas = essay.hidden && !document.getElementById('app').classList.contains('walk-mode');
+      const cardOpenedCanvas =
+        location.hash === '#canvas' && essay.hidden && !document.getElementById('app').classList.contains('walk-mode');
       const focusedCanvasPane = document.activeElement?.id === 'panel-recent';
       const highlightedCanvasPane = document.getElementById('panel-recent')?.classList.contains('walk-focus') ?? false;
       await new Promise((r) => setTimeout(r, 500));
@@ -218,7 +219,7 @@ try {
       history.back();
       await new Promise((r) => setTimeout(r, 50));
       const scrollAfterBack = essay.scrollTop;
-      const returnedByBack = !essay.hidden && Math.abs(scrollAfterBack - scrollBeforeCard) <= 1;
+      const returnedByBack = location.hash === '' && !essay.hidden && Math.abs(scrollAfterBack - scrollBeforeCard) <= 1;
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await new Promise((r) => requestAnimationFrame(r));
       const browserHistoryShortcut = new KeyboardEvent('keydown', {
