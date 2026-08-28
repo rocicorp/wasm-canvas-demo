@@ -129,6 +129,7 @@ try {
       const app = globalThis.rindleDraw;
       const queryViews = app.queries().map((q) => q.view);
       const canvasRect = document.getElementById('canvas').getBoundingClientRect();
+      const defaultWalkthrough = location.hash === '#walkthrough' && !document.getElementById('walkthrough').hidden;
       document.querySelector('[data-view="walkthrough"]').click();
       await new Promise((r) => requestAnimationFrame(r));
 
@@ -178,10 +179,11 @@ try {
           !!document.querySelector('.walk-source .t-key') &&
           !!document.querySelector('.walk-source .t-comment'),
         bodyInert: document.getElementById('body').inert,
+        defaultWalkthrough,
         permalinks:
-          sourceLinks.length === 10 &&
+          sourceLinks.length === 9 &&
           sourceLinks.every((link) =>
-            link.href.includes('/blob/190a9a81342d7c9a9a5f77a0ede8b811b3e73dd4/') &&
+            link.href.includes('/blob/73e0384e5d5b77bb12f7260cd296518876502816/') &&
             link.hash.startsWith('#L') && link.hash.includes('-L')
           ),
         paneThumbs:
@@ -219,6 +221,13 @@ try {
       const returnedByBack = !essay.hidden && Math.abs(scrollAfterBack - scrollBeforeCard) <= 1;
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await new Promise((r) => requestAnimationFrame(r));
+      const browserHistoryShortcut = new KeyboardEvent('keydown', {
+        key: 'ArrowLeft',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(browserHistoryShortcut);
       return {
         ...opened,
         cardA11y,
@@ -227,6 +236,7 @@ try {
         highlightedCanvasPane,
         canvasPaneInView,
         returnedByBack,
+        browserHistoryShortcutAllowed: !browserHistoryShortcut.defaultPrevented,
         closed: essay.hidden && !document.getElementById('body').inert,
         sameViews:
           app.queries().length === queryViews.length &&
@@ -771,11 +781,13 @@ try {
   if (!walkthrough.cardOpenedCanvas || !walkthrough.returnedByBack) {
     fail(`the walkthrough card did not return through browser Back with its scroll position: ${JSON.stringify(walkthrough)}`);
   }
+  if (!walkthrough.browserHistoryShortcutAllowed) fail("Cmd/Ctrl + Left was intercepted instead of being left to browser history");
   if (!walkthrough.focusedCanvasPane || !walkthrough.highlightedCanvasPane || !walkthrough.canvasPaneInView) {
     fail(`the clicked walkthrough pane was not focused, highlighted, and visible in the canvas rail: ${JSON.stringify(walkthrough)}`);
   }
   if (!walkthrough.bodyInert) fail("the canvas remained keyboard-accessible behind the walkthrough");
-  if (!walkthrough.permalinks) fail("the walkthrough source links are not immutable GitHub line anchors");
+  if (!walkthrough.defaultWalkthrough) fail("an unqualified URL did not open the walkthrough by default");
+  if (!walkthrough.permalinks) fail("the walkthrough source links do not target the latest main revision");
   if (!walkthrough.paneThumbs) fail("the walkthrough pane thumbnails are missing or out of sync with the live cards");
   if (!walkthrough.queryCountHeld) fail("opening the walkthrough registered duplicate queries for its live cards");
   if (!walkthrough.prominentViewSwitch) fail("the canvas/walkthrough switch lost its prominent segmented styling");
