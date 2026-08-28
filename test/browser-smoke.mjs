@@ -223,6 +223,10 @@ try {
         .find((button) => button.dataset.color !== editorBefore?.color);
       swatch?.click();
       await settleEditor();
+      const recolorFlash =
+        document.querySelectorAll('#walk-fanout [data-walk-pane="tally"] .chip.walk-value-change').length >= 2 &&
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="selection"] .f.walk-value-change label')]
+          .some((label) => label.textContent === 'color');
 
       const beforeResize = app.mirror.get(editorId);
       const frame = globalThis.rindleGeom.frameOf([beforeResize]);
@@ -231,6 +235,14 @@ try {
       pointer('pointermove', handle.x + 260, handle.y + 100, 72);
       pointer('pointerup', handle.x + 260, handle.y + 100, 72);
       await settleEditor();
+      const resizedFields = new Set(
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="selection"] .f.walk-value-change label')]
+          .map((label) => label.textContent)
+      );
+      const resizeFlash =
+        ['w', 'h', 'area'].every((field) => resizedFields.has(field)) &&
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="top"] .row.walk-value-change')]
+          .some((row) => row.textContent.includes('#' + editorId));
 
       const beforeMove = app.mirror.get(editorId);
       pointer('pointerdown', beforeMove.x, beforeMove.y, 73);
@@ -238,11 +250,49 @@ try {
       pointer('pointerup', beforeMove.x - 10, beforeMove.y, 73);
       await settleEditor();
       const editorAfter = app.mirror.get(editorId);
+      const movedFields = new Set(
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="selection"] .f.walk-value-change label')]
+          .map((label) => label.textContent)
+      );
+      const moveFlash =
+        movedFields.has('x') &&
+        [...document.querySelectorAll('#walk-fanout [data-walk-pane="recent"] .row.walk-value-change')]
+          .some((row) => row.textContent.includes('#' + editorId));
 
       // Leave the lab unselected: both the chrome and the Selection card should now be empty.
       pointer('pointerdown', editorAfter.x + editorAfter.w * 4 + 100, editorAfter.y + editorAfter.h * 4 + 100, 74);
       pointer('pointerup', editorAfter.x + editorAfter.w * 4 + 100, editorAfter.y + editorAfter.h * 4 + 100, 74);
       await settleEditor();
+      const deselectFlash = !!document.querySelector(
+        '#walk-fanout [data-walk-pane="selection"] .empty.walk-value-change'
+      );
+
+      // This CanvasView keeps editing gestures but gives wheel and middle-drag back instead of
+      // moving its camera. The main canvas remains camera-enabled.
+      const cameraBefore = walkCanvas.viewport();
+      const wheelAllowed = editorCanvas.dispatchEvent(new WheelEvent('wheel', {
+        deltaX: 120, deltaY: 80, bubbles: true, cancelable: true,
+      }));
+      const centerX = (editorBox.left + editorBox.right) / 2;
+      const centerY = (editorBox.top + editorBox.bottom) / 2;
+      editorCanvas.dispatchEvent(new PointerEvent('pointerdown', {
+        pointerId: 75, button: 1, clientX: centerX, clientY: centerY, bubbles: true, cancelable: true,
+      }));
+      editorCanvas.dispatchEvent(new PointerEvent('pointermove', {
+        pointerId: 75, button: 1, clientX: centerX + 80, clientY: centerY + 40, bubbles: true, cancelable: true,
+      }));
+      editorCanvas.dispatchEvent(new PointerEvent('pointerup', {
+        pointerId: 75, button: 1, clientX: centerX + 80, clientY: centerY + 40, bubbles: true, cancelable: true,
+      }));
+      await settleEditor();
+      const cameraAfter = walkCanvas.viewport();
+      const cameraLocked =
+        walkCanvas.cameraLocked &&
+        wheelAllowed &&
+        Math.abs(cameraAfter.x0 - cameraBefore.x0) < 0.001 &&
+        Math.abs(cameraAfter.y0 - cameraBefore.y0) < 0.001 &&
+        Math.abs(cameraAfter.x1 - cameraBefore.x1) < 0.001 &&
+        Math.abs(cameraAfter.y1 - cameraBefore.y1) < 0.001;
       const editor = {
         present: !!editorCanvas && Number.isFinite(editorId) && !!swatch,
         before: editorBefore,
@@ -252,6 +302,8 @@ try {
         initiallySelected,
         deselected,
         reselected,
+        cameraLocked,
+        granularFlashes: recolorFlash && resizeFlash && moveFlash && deselectFlash,
         deselectedAgain:
           !app.selected.has(editorId) &&
           selectionIsEmpty() &&
@@ -267,7 +319,7 @@ try {
           document.querySelector('[data-walk-pane="recent"] .pbody')?.textContent.includes('#' + editorId) ?? false,
         enteredLargest:
           document.querySelector('[data-walk-pane="top"] .pbody')?.textContent.includes('#' + editorId) ?? false,
-        foldedCards: document.querySelectorAll('#walk-fanout .walk-pane-card.fold').length,
+        wholeCardFlashes: document.querySelectorAll('#walk-fanout .walk-pane-card.fold').length,
         queryCountHeld: app.queries().length === queryViews.length,
       };
 
@@ -1088,6 +1140,9 @@ try {
     !walkthrough.editor.deselected ||
     !walkthrough.editor.reselected ||
     !walkthrough.editor.deselectedAgain ||
+    !walkthrough.editor.cameraLocked ||
+    !walkthrough.editor.granularFlashes ||
+    walkthrough.editor.wholeCardFlashes !== 0 ||
     !walkthrough.editor.changed
   ) {
     fail(`the walkthrough shape editor did not edit its real row: ${JSON.stringify(walkthrough.editor)}`);
@@ -1095,8 +1150,7 @@ try {
   if (
     !walkthrough.editor.tallyChanged ||
     !walkthrough.editor.recentUpdated ||
-    !walkthrough.editor.enteredLargest ||
-    walkthrough.editor.foldedCards < 4
+    !walkthrough.editor.enteredLargest
   ) {
     fail(`the Step 04 panels did not fold the edited row together: ${JSON.stringify(walkthrough.editor)}`);
   }

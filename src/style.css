@@ -764,6 +764,23 @@ body {
 .walk-pane-gallery [data-walk-pane="tally"] .chips .chip.on {
   border-color: var(--panel-edge);
 }
+@keyframes walk-value-change {
+  0% {
+    background-color: rgba(39, 252, 174, 0.24);
+    box-shadow: 0 0 0 3px rgba(39, 252, 174, 0.14);
+    color: #fff;
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 rgba(39, 252, 174, 0);
+  }
+}
+#walk-fanout .walk-value-change {
+  position: relative;
+  z-index: 1;
+  border-radius: 5px;
+  animation: walk-value-change 760ms ease-out;
+}
 
 @media (min-width: 1100px) {
   .walk-fanout-demo {

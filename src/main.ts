@@ -199,6 +199,7 @@ const walkCanvas = new CanvasView(walkShapeCanvasEl, {
   mark: (tag) => app.mark(tag),
 });
 walkCanvas.tool = "select";
+walkCanvas.cameraLocked = true;
 Object.assign(globalThis, { rindleWalkCanvas: walkCanvas });
 
 function resetWalkShapeEditor(): ShapeRow | undefined {
@@ -968,6 +969,49 @@ for (const frame of document.querySelectorAll<HTMLElement>("[data-walk-pane]")) 
   });
 }
 
+interface WalkPaneValue {
+  el: HTMLElement;
+  value: string;
+}
+
+/** Snapshot only what a compact Step 04 card visibly renders. A query can fold a write whose
+ *  changed columns are not shown here; in that case nothing flashes, which is exactly the point:
+ *  the pulse identifies a visible consequence, not merely that some upstream work happened. */
+function walkPaneValues(view: WalkPaneView): Map<string, WalkPaneValue> {
+  const out = new Map<string, WalkPaneValue>();
+  const pane = view.source.el.id;
+  if (pane === "panel-tally") {
+    for (const el of view.body.querySelectorAll<HTMLElement>(".chip[data-color]")) {
+      out.set(el.dataset.color!, { el, value: el.innerHTML });
+    }
+    return out;
+  }
+  if (pane === "panel-selection") {
+    for (const el of view.body.querySelectorAll<HTMLElement>(".f")) {
+      const key = el.querySelector("label")?.textContent ?? "field";
+      out.set(key, { el, value: el.innerHTML });
+    }
+    const empty = view.body.querySelector<HTMLElement>(".empty");
+    if (empty) out.set("empty", { el: empty, value: empty.innerHTML });
+    return out;
+  }
+  if (pane === "panel-top" || pane === "panel-recent") {
+    let fallback = 0;
+    for (const el of view.body.querySelectorAll<HTMLElement>(".row")) {
+      const id = el.textContent?.match(/#\d+/)?.[0] ?? `row-${fallback++}`;
+      out.set(id, { el, value: el.innerHTML });
+    }
+  }
+  return out;
+}
+
+function flashWalkPaneValues(view: WalkPaneView, before: Map<string, WalkPaneValue>): void {
+  for (const [key, after] of walkPaneValues(view)) {
+    if (before.get(key)?.value === after.value) continue;
+    after.el.classList.add("walk-value-change");
+  }
+}
+
 function renderWalkPaneViews(): void {
   for (const view of walkPaneViews) {
     const { source } = view;
@@ -983,7 +1027,10 @@ function renderWalkPaneViews(): void {
     }
     const seq = source.seqOf ? source.seqOf() : live.seq;
     if (!walkThumbsDirty && seq === view.renderedSeq) continue;
-    if (view.renderedSeq >= 0 && seq !== view.renderedSeq) flash(view.el, "fold");
+    const changed = view.renderedSeq >= 0 && seq !== view.renderedSeq;
+    const granular = changed && view.el.closest("#walk-fanout") !== null;
+    const before = granular ? walkPaneValues(view) : null;
+    if (changed && !granular) flash(view.el, "fold");
     view.renderedSeq = seq;
     const code = live.def.code(live.args);
     if (code !== view.renderedCode) {
@@ -991,6 +1038,7 @@ function renderWalkPaneViews(): void {
       view.codeEl.innerHTML = highlightQuery(code);
     }
     source.render(app.current(live), view.body);
+    if (before) flashWalkPaneValues(view, before);
     view.deltaEl.textContent = live.lastDelta ? `last delta  ${live.lastDelta}` : "";
     view.hydEl.textContent = source.alwaysHyd ? `hydrated ${fmtMs(live.hydrateMs)}` : "";
   }
