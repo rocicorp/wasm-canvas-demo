@@ -149,7 +149,12 @@ const paintWalkRobotPause = (): void => {
 
 new IntersectionObserver(
   ([entry]) => {
+    const wasInView = walkShapeInView;
     walkShapeInView = entry.isIntersecting && entry.intersectionRatio >= 0.25;
+    // The lab shares a real robot-owned row with the main canvas. It may have wandered away
+    // from the camera since the walkthrough first opened, so aim again on every entrance. The
+    // in-view flag also pauses robot ticks, which keeps that new framing stable while you edit.
+    if (walkShapeInView && !wasInView) walkShapeReset = true;
     paintWalkRobotPause();
   },
   { root: walkthrough, threshold: [0, 0.25] },
